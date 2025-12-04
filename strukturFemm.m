@@ -1179,7 +1179,7 @@ function [theta_deg, T] = torque_cogging_scan(inp)
     innerIndex  = 10;     % ia = Inner Angle, Deg 在 mi_addboundprop 里的索引是 10
 
     dtheta    = 1;        % 每步 1°
-    maxAngle  = 15;       % 扫 0~90°
+    maxAngle  = 90;       % 扫 0~90°（四分之一模型需要补偿）
     theta_deg = 0:dtheta:maxAngle;
     nSteps    = numel(theta_deg);
     T         = zeros(nSteps,1);
@@ -1216,8 +1216,16 @@ delta_e = delta_e_deg*pi/180;
         mi_zoomnatural;           % 自动缩放到合适大小
 
         % 2.3 在转子组上做转矩积分
+        %     如果想把 90° 四分之一模型换算成整机，可把 torque_multiplier
+        %     改为 sector_multiplier（此处为 4 倍）。使用 FEMM 周期边界时，
+        %     mo_blockintegral(22) 已反映重复的场分布，保持默认 1 倍更接近
+        %     老师的整机结果。
+        thetaP = 45;                             % 极距 = 360/8
+        poles_in_model    = maxAngle/thetaP;      % 本模型含有的磁极数量
+        sector_multiplier = 8/poles_in_model;     % 整机/模型磁极数比值（示例：4 倍）
+        torque_multiplier = 1;                    % 若需整机换算可改为 sector_multiplier
         mo_groupselectblock(rotor_group);
-        T(k) = mo_blockintegral(22);    % 22 = Torque
+        T(k) = torque_multiplier * mo_blockintegral(22);    % 22 = Torque
         mo_clearblock;
         mo_close;
     end
