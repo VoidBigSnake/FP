@@ -186,14 +186,15 @@ if strcmpi(cfg.mode, 'slot')
     % 槽截面（局部 u/v，多边形顶点顺时针）。
     slot_outline = build_slot_outline(cfg);
 
-    % 将极坐标网格转换为槽局部 u/v：
-    % u = r*dtheta（切向弧长），v = r - r_inner（径向到齿根距离）。
-    dtheta_rad = deg2rad(theta_centers - cfg.slot_center_deg);
-    u_local = r_centers .* dtheta_rad;
-    v_local = r_centers - cfg.r_inner;
+    % 将槽截面映射到极坐标 (theta_deg, r)：
+    %   theta_slot = slot_center_deg + (u / (r_inner+v)) * 180/pi
+    %   r_slot     = r_inner + v
+    % 这样槽壁保持按毫米计的常宽，不会随半径被拉宽。
+    slot_outline_tr = uv_to_polar(slot_outline, cfg.r_inner, cfg.slot_center_deg);
 
-    % 槽/线圈冻结区：在槽口矩形 + 六边形槽体多边形内部。
-    in_slot = inpolygon(u_local(:), v_local(:), slot_outline.u, slot_outline.v);
+    % 槽/线圈冻结区：在极坐标平面内落入多边形的单元。
+    in_slot = inpolygon(theta_centers(:), r_centers(:), ...
+                        slot_outline_tr.theta_deg, slot_outline_tr.r);
     slot_mask = reshape(in_slot, size(theta_centers));
 
     % 设计掩膜：仅允许在轭/齿肩编辑，不包含槽与边界缓冲区。
@@ -222,10 +223,9 @@ else
         tmp_cfg.slot_center_deg = slot_center;
         slot_outline = build_slot_outline(tmp_cfg);
 
-        dtheta_rad = deg2rad(theta_centers - slot_center);
-        u_local = r_centers .* dtheta_rad;
-        v_local = r_centers - cfg.r_inner;
-        in_slot = inpolygon(u_local(:), v_local(:), slot_outline.u, slot_outline.v);
+        slot_outline_tr = uv_to_polar(slot_outline, cfg.r_inner, slot_center);
+        in_slot = inpolygon(theta_centers(:), r_centers(:), ...
+                            slot_outline_tr.theta_deg, slot_outline_tr.r);
         slot_mask = reshape(in_slot, size(theta_centers));
         design_mask = design_mask & ~slot_mask;
         slot_frozen_in_yoke = true;
@@ -242,6 +242,9 @@ domain.theta_edges = theta_edges;
 domain.design_mask = design_mask;
 domain.slot_mask = slot_mask;
 domain.slot_outline_uv = slot_outline;
+if exist('slot_outline_tr', 'var')
+    domain.slot_outline_tr = slot_outline_tr; % 极坐标 (theta_deg,r)
+end
 domain.notes = {
     'design_mask: true = 优化器可切换铁/空气，false = 冻结';
     'slot_mask: true = 槽/线圈或非设计区保持不变';
@@ -313,4 +316,17 @@ outline_u = [ ...
 % 变为行向量，便于 inpolygon 调用。
 outline.u = outline_u(:,1)';
 outline.v = outline_u(:,2)';
+end
+
+function outline_tr = uv_to_polar(outline_uv, r_inner, slot_center_deg)
+%UV_TO_POLAR 将槽截面从 (u,v) 变换到极坐标 (theta_deg, r)。
+%  theta = slot_center_deg + (u / (r_inner+v)) * 180/pi
+%  r     = r_inner + v
+
+r = r_inner + outline_uv.v;
+theta_offset_deg = rad2deg(outline_uv.u ./ r);
+
+outline_tr = struct();
+outline_tr.r = r;
+outline_tr.theta_deg = slot_center_deg + theta_offset_deg;
 end
