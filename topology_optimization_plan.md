@@ -49,3 +49,26 @@
 3. **几何生成适配 FEMM**：在新的 FEMM 构建函数里，循环 `design_mask` 的可编辑单元，用 `mi_drawpolygon`/`mi_addblocklabel` 写入对应材料；`slot_mask` 覆盖区则直接放置铜/空气标签，避免被修改。
 4. **集成到 `myfunc`**：在计算适应度时，先将比特串传入 `apply_design_mask` 得到完整网格，再映射到 FEMM 几何、求解转矩，最后返回带惩罚项的目标值。
 5. **调试与可视化**：在早期迭代中绘制 `design_mask` 和当前基因对应的材料分布热力图，检查槽区不被侵蚀，周期边界单元保持对称。
+
+## `cfg = struct(...)` 的写法与填写指南
+- MATLAB 里 `cfg = struct('字段1', 值1, '字段2', 值2, ...)` 会创建一个含命名字段的结构体；字段名用引号包住，字段和值交替出现。
+- 设计域脚本期望的字段与含义（与 `stator_design_domain.m` 一致）：
+  - 必填：
+    - `nr`、`nt`：径向/切向单元数（决定网格分辨率）。
+    - `r_inner`、`r_outer`：定子内外半径。
+    - `slot_r_inner`、`slot_r_outer`：槽口起止半径（槽口到线圈窗口）。
+    - `slot_span_deg`：槽窗口在 15° 扇区内占用的张角。
+    - `theta_span_deg`：设计扇区总张角（本方案用 15）。
+  - 可选：
+    - `coil_keepout_deg`：槽口两侧额外冻结的半角（默认 0，可加宽保护区）。
+    - `yoke_buffer_deg`：扇区边界附近的冻结半角，用于周期边界稳定（默认 0）。
+- 完整示例（可直接粘贴运行）：
+  ```matlab
+  cfg = struct('nr', 8, 'nt', 20, ...
+               'r_inner', 22, 'r_outer', 40, ...
+               'slot_r_inner', 22.5, 'slot_r_outer', 28, ...
+               'slot_span_deg', 6, 'theta_span_deg', 15, ...
+               'coil_keepout_deg', 1.0, 'yoke_buffer_deg', 0.5);
+  domain = stator_design_domain(cfg);
+  ```
+  上述写法依次给每个字段赋值，等价于逐行写 `cfg.nr = 8; cfg.nt = 20; ...`，但更简洁且不易漏项。
