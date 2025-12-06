@@ -1,8 +1,8 @@
 function visualize_design_domain(domain)
-%VISUALIZE_DESIGN_DOMAIN 可视化 15° 扇区的设计掩膜与冻结区域。
+%VISUALIZE_DESIGN_DOMAIN 可视化 15° 扇区的设计掩膜与冻结区域（槽模式）。
 %  VISUALIZE_DESIGN_DOMAIN(DOMAIN) 使用 imagesc 显示 design_mask（可编辑）
 %  与 slot_mask（槽/线圈或非设计区），帮助确认 stator_design_domain(cfg)
-%  生成的掩膜是否生效（支持 slot / yoke 两种模式）。
+%  生成的掩膜是否生效。
 %
 %  颜色说明：
 %    绿色 = 设计域（true in design_mask）
