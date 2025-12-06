@@ -82,9 +82,15 @@ for it = 1:gen
     [T,pcs] = reprod(N,beta,ind,Ab);
 
     % Hypermutation (Step 5)
+    % - 逐位生成与 T 同尺寸的掩码 M，概率 pm 置 1，相当于标记“需要翻转的基因位”。
+    % - T = T - 2 .* (T.*M) + M 利用 0/1 的代数关系执行批量比特翻转：
+    %   * 当 M(i,j)=0 时，T 不变；
+    %   * 当 M(i,j)=1 时，T(i,j) = 1 - T(i,j)，即 1→0、0→1。
+    % - 超变异后，将每个克隆批次的末尾个体（由 pcs 给出其全局下标）替换为对应原型
+    %   Ab(fliplr(ind),:)，确保每批都保留“原型对照”，便于后续在批次内部做择优比较。
     M = rand(size(T,1),44) <= pm;
     T = T - 2 .* (T.*M) + M;
-    
+
     T(pcs,:) = Ab(fliplr(ind),:);
     
     % Decode (Step 6)
