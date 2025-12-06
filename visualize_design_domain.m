@@ -32,6 +32,17 @@ title('设计域掩膜（15° 扇区）');
 xlabel('切向单元索引');
 ylabel('径向单元索引');
 
+% 如提供槽轮廓（局部 u/v），在图上覆盖轮廓线，便于对齐检查。
+if isfield(domain, 'slot_outline_uv')
+    hold on;
+    u = domain.slot_outline_uv.u;
+    v = domain.slot_outline_uv.v;
+    plot((u - min(u)) / (max(u)-min(u)+eps) * (size(mask,1)-1) + 1, ...
+         (v - min(v)) / (max(v)-min(v)+eps) * (size(mask,2)-1) + 1, ...
+         'k-', 'LineWidth', 1.2, 'DisplayName', '槽轮廓参考');
+    hold off;
+end
+
 gridsize = size(mask);
 text(1, gridsize(2)+0.3, sprintf('nt=%d, nr=%d', gridsize(1), gridsize(2)));
 
