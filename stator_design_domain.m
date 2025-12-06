@@ -32,6 +32,7 @@ function domain = stator_design_domain(cfg)
 %                 'slot_span_deg',6,'theta_span_deg',15,...
 %                 'coil_keepout_deg',1.0,'yoke_buffer_deg',0.5);
 %    domain = stator_design_domain(cfg);
+%    visualize_design_domain(domain); % 可视化确认掩膜是否符合预期
 %
 %  参见 APPLY_DESIGN_MASK。
 
