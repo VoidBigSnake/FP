@@ -1,14 +1,21 @@
 function domain = stator_design_domain(cfg)
-%STATORDESIGNDOMAIN 构建 15° 定子扇区的设计掩膜（槽口矩形 + 六边形槽体）。
+%STATORDESIGNDOMAIN 构建 15° 定子扇区的设计掩膜。
 %  DOMAIN = STATORDESIGNDOMAIN(CFG) 返回网格边界与逻辑掩膜，
-%  描述优化器可以编辑的极坐标单元。槽型按 strukturFemm 中的参数：
-%  槽口矩形（宽/高） + 六边形槽体（上宽、上高、底宽、底高、底部外延0.5、齿唇宽）。
+%  描述优化器可以编辑的极坐标单元。
 %
-%  CFG 必填字段：
+%  两种模式：
+%  1) 'slot'（默认）：槽口矩形 + 六边形槽体被冻结，只在铁轭/齿肩内优化。
+%     适用于“槽不动”的拓扑优化。
+%  2) 'yoke'：直接用径向内外半径限定 15° 扇区的铁轭环带，忽略槽型细节，
+%     适合“只在铁轭”里开窗口或挖孔的场景。
+%
+%  公共必填字段：
 %    nr, nt                - 径向/切向单元数（例：8、20）
 %    r_inner, r_outer      - 定子内/外半径（mm）
 %    theta_span_deg        - 设计扇区总角度（度，例：15）
-%    slot_center_deg       - 该扇区内槽中心角（度，通常=theta_span_deg/2）
+%
+%  模式 'slot' 额外必填字段：
+%    slot_center_deg       - 槽中心角（度，通常=theta_span_deg/2）
 %    mouth_w, mouth_h      - 槽口矩形的宽/高（mm）
 %    top_w,  top_h         - 槽体上边宽、上边到槽口顶的高（mm）
 %    bottom_w, bottom_h    - 槽体底边宽、槽体高度（mm）
@@ -16,17 +23,22 @@ function domain = stator_design_domain(cfg)
 %    lip_w                 - 齿唇宽（mm，对应槽口两侧微收口）
 %    bottom_ext            - 槽底向外额外外延量（mm，结构图中 0.5）
 %
+%  模式 'yoke' 额外必填字段：
+%    design_r_inner        - 设计域内径（mm），应为铁轭开始半径
+%    design_r_outer        - 设计域外径（mm），不超过 r_outer
+%
 %  CFG 可选字段：
 %    yoke_buffer_deg       - 扇区边界附近的冻结半角，利于周期边界（默认 0）
+%    mode                  - 'slot' 或 'yoke'（默认 'slot'）
 %
 %  输出 DOMAIN 字段：
 %    r_edges, theta_edges  - 网格边界
 %    design_mask           - nt×nr 逻辑矩阵，true = 可由优化器切换铁/空；false = 冻结
-%    slot_mask             - nt×nr 逻辑矩阵，true = 槽/线圈冻结区（含槽口+六边形）
-%    slot_outline_uv       - 槽截面顶点（局部 u/v 坐标，便于调试/复用）
+%    slot_mask             - nt×nr 逻辑矩阵，true = 槽/线圈/冻结区
+%    slot_outline_uv       - 槽截面顶点（仅 slot 模式下给出，便于调试/复用）
 %    notes                 - 文字提醒
 %
-%  示例：
+%  示例（槽冻结，优化轭/齿肩）：
 %    cfg = struct('nr',8,'nt',24,'r_inner',31.5,'r_outer',55,...
 %      'theta_span_deg',15,'slot_center_deg',7.5,...
 %      'mouth_w',8.7,'mouth_h',2,'top_w',8.7,'top_h',2,...
@@ -35,22 +47,51 @@ function domain = stator_design_domain(cfg)
 %    domain = stator_design_domain(cfg);
 %    visualize_design_domain(domain); % 可视化确认掩膜是否符合预期
 %
+%  示例（只在铁轭环带内优化）：
+%    cfg = struct('nr',8,'nt',24,'r_inner',31.5,'r_outer',55,...
+%      'theta_span_deg',15,'design_r_inner',48,'design_r_outer',55,...
+%      'mode','yoke','yoke_buffer_deg',0.3);
+%    domain = stator_design_domain(cfg);
+%    visualize_design_domain(domain);
+%
 %  参见 APPLY_DESIGN_MASK、VISUALIZE_DESIGN_DOMAIN。
 
 % 使用较老版本 MATLAB/Octave 时，避免 ARGUMENTS 语法带来的解析错误，改为
 % 传统的字段检查与默认值填充。
-required_fields = { ...
-    'nr','nt','r_inner','r_outer','theta_span_deg','slot_center_deg', ...
-    'mouth_w','mouth_h','top_w','top_h','bottom_w','bottom_h', ...
-    'slot_depth','lip_w','bottom_ext'};
-for f = required_fields
+if ~isfield(cfg, 'mode'); cfg.mode = 'slot'; end
+if ~isfield(cfg, 'yoke_buffer_deg');  cfg.yoke_buffer_deg  = 0; end
+
+% 必填字段按模式拆分。
+common_required = {'nr','nt','r_inner','r_outer','theta_span_deg'};
+slot_required = { ...
+    'slot_center_deg','mouth_w','mouth_h','top_w','top_h', ...
+    'bottom_w','bottom_h','slot_depth','lip_w','bottom_ext'};
+yoke_required = {'design_r_inner','design_r_outer'};
+
+for f = common_required
     if ~isfield(cfg, f{1})
         error('缺少必填字段 cfg.%s', f{1});
     end
 end
 
-% 默认值（如已提供则不覆盖）。
-if ~isfield(cfg, 'yoke_buffer_deg');  cfg.yoke_buffer_deg  = 0; end
+switch lower(cfg.mode)
+    case 'slot'
+        for f = slot_required
+            if ~isfield(cfg, f{1})
+                error('模式 slot 需提供 cfg.%s', f{1});
+            end
+        end
+    case 'yoke'
+        for f = yoke_required
+            if ~isfield(cfg, f{1})
+                error('模式 yoke 需提供 cfg.%s', f{1});
+            end
+        end
+    otherwise
+        error('未知模式 cfg.mode=%s（支持 ''slot'' 或 ''yoke''）', cfg.mode);
+end
+
+% 默认值不覆盖用户输入。
 
 % 数值检查（正数/非负）。
 mustBePositive = @(v,name) assert(isnumeric(v) && isscalar(v) && v>0, ...
@@ -62,15 +103,6 @@ mustBePositive(cfg.nr, 'nr');
 mustBePositive(cfg.nt, 'nt');
 mustBePositive(cfg.r_inner, 'r_inner');
 mustBePositive(cfg.r_outer, 'r_outer');
-mustBePositive(cfg.mouth_w, 'mouth_w');
-mustBePositive(cfg.mouth_h, 'mouth_h');
-mustBePositive(cfg.top_w, 'top_w');
-mustBePositive(cfg.top_h, 'top_h');
-mustBePositive(cfg.bottom_w, 'bottom_w');
-mustBePositive(cfg.bottom_h, 'bottom_h');
-mustBePositive(cfg.slot_depth, 'slot_depth');
-mustBePositive(cfg.lip_w, 'lip_w');
-mustBePositive(cfg.bottom_ext, 'bottom_ext');
 mustBePositive(cfg.theta_span_deg, 'theta_span_deg');
 mustBeNonnegative(cfg.yoke_buffer_deg, 'yoke_buffer_deg');
 
@@ -79,14 +111,44 @@ if cfg.r_outer <= cfg.r_inner
           cfg.r_outer, cfg.r_inner);
 end
 
-if cfg.slot_depth <= cfg.mouth_h
-    error('slot_depth must exceed mouth_h (got %.2f vs %.2f).', ...
-          cfg.slot_depth, cfg.mouth_h);
-end
+if strcmpi(cfg.mode, 'slot')
+    mustBePositive(cfg.mouth_w, 'mouth_w');
+    mustBePositive(cfg.mouth_h, 'mouth_h');
+    mustBePositive(cfg.top_w, 'top_w');
+    mustBePositive(cfg.top_h, 'top_h');
+    mustBePositive(cfg.bottom_w, 'bottom_w');
+    mustBePositive(cfg.bottom_h, 'bottom_h');
+    mustBePositive(cfg.slot_depth, 'slot_depth');
+    mustBePositive(cfg.lip_w, 'lip_w');
+    mustBePositive(cfg.bottom_ext, 'bottom_ext');
 
-if cfg.slot_depth <= cfg.top_h + cfg.bottom_h
-    error('slot_depth 应大于 top_h+bottom_h，当前 %.2f <= %.2f', ...
-          cfg.slot_depth, cfg.top_h + cfg.bottom_h);
+    if cfg.slot_depth <= cfg.mouth_h
+        error('slot_depth must exceed mouth_h (got %.2f vs %.2f).', ...
+              cfg.slot_depth, cfg.mouth_h);
+    end
+
+    if cfg.slot_depth <= cfg.top_h + cfg.bottom_h
+        error('slot_depth 应大于 top_h+bottom_h，当前 %.2f <= %.2f', ...
+              cfg.slot_depth, cfg.top_h + cfg.bottom_h);
+    end
+else
+    mustBePositive(cfg.design_r_inner, 'design_r_inner');
+    mustBePositive(cfg.design_r_outer, 'design_r_outer');
+
+    if cfg.design_r_outer > cfg.r_outer
+        error('design_r_outer=%.2f 不应超过 r_outer=%.2f', ...
+              cfg.design_r_outer, cfg.r_outer);
+    end
+
+    if cfg.design_r_inner < cfg.r_inner
+        error('design_r_inner=%.2f 不应小于 r_inner=%.2f', ...
+              cfg.design_r_inner, cfg.r_inner);
+    end
+
+    if cfg.design_r_outer <= cfg.design_r_inner
+        error('design_r_outer 必须大于 design_r_inner (%.2f vs %.2f)', ...
+              cfg.design_r_outer, cfg.design_r_inner);
+    end
 end
 
 % 构建网格边界与中心。
@@ -99,25 +161,38 @@ theta_edges = linspace(0, cfg.theta_span_deg, cfg.nt + 1); % 角度制
 theta_centers = theta_centers';
 r_centers = r_centers';
 
-% 槽截面（局部 u/v，多边形顶点顺时针）。
-slot_outline = build_slot_outline(cfg);
-
-% 将极坐标网格转换为槽局部 u/v：
-% u = r*dtheta（切向弧长），v = r - r_inner（径向到齿根距离）。
-dtheta_rad = deg2rad(theta_centers - cfg.slot_center_deg);
-u_local = r_centers .* dtheta_rad;
-v_local = r_centers - cfg.r_inner;
-
-% 槽/线圈冻结区：在槽口矩形 + 六边形槽体多边形内部。
-in_slot = inpolygon(u_local(:), v_local(:), slot_outline.u, slot_outline.v);
-slot_mask = reshape(in_slot, size(theta_centers));
-
 % 扇区边界附近的缓冲区，保持周期边界节点稳定。
 edge_mask = (theta_centers <= cfg.yoke_buffer_deg) | ...
             (theta_centers >= (cfg.theta_span_deg - cfg.yoke_buffer_deg));
 
-% 设计掩膜：仅允许在轭/齿肩编辑，不包含槽与边界缓冲区。
-design_mask = ~slot_mask & ~edge_mask;
+slot_outline = struct('u',[],'v',[]);
+slot_mask = false(size(theta_centers));
+
+if strcmpi(cfg.mode, 'slot')
+    % 槽截面（局部 u/v，多边形顶点顺时针）。
+    slot_outline = build_slot_outline(cfg);
+
+    % 将极坐标网格转换为槽局部 u/v：
+    % u = r*dtheta（切向弧长），v = r - r_inner（径向到齿根距离）。
+    dtheta_rad = deg2rad(theta_centers - cfg.slot_center_deg);
+    u_local = r_centers .* dtheta_rad;
+    v_local = r_centers - cfg.r_inner;
+
+    % 槽/线圈冻结区：在槽口矩形 + 六边形槽体多边形内部。
+    in_slot = inpolygon(u_local(:), v_local(:), slot_outline.u, slot_outline.v);
+    slot_mask = reshape(in_slot, size(theta_centers));
+
+    % 设计掩膜：仅允许在轭/齿肩编辑，不包含槽与边界缓冲区。
+    design_mask = ~slot_mask & ~edge_mask;
+else
+    % Yoke 模式：仅在指定的径向环带内可编辑，其余保持冻结。
+    radial_band = (r_centers >= cfg.design_r_inner) & ...
+                  (r_centers <= cfg.design_r_outer);
+    design_mask = radial_band & ~edge_mask;
+
+    % 将环带外部视为“冻结区”，便于可视化。
+    slot_mask = ~radial_band | edge_mask;
+end
 
 % 汇总结果。
 domain = struct();
@@ -128,12 +203,8 @@ domain.slot_mask = slot_mask;
 domain.slot_outline_uv = slot_outline;
 domain.notes = {
     'design_mask: true = 优化器可切换铁/空气，false = 冻结';
-    'slot_mask: true = 槽/线圈区保持不变（槽口矩形 + 六边形槽体）';
-    'apply_design_mask(bits, domain, base_val) 会强制冻结区域';
-    sprintf('sector %.1f° @ center %.2f°, mouth %.1f×%.1f mm, top %.1f×%.1f mm, bottom %.1f×%.1f mm (+%.2f)', ...
-            cfg.theta_span_deg, cfg.slot_center_deg, ...
-            cfg.mouth_w, cfg.mouth_h, cfg.top_w, cfg.top_h, ...
-            cfg.bottom_w, cfg.bottom_h, cfg.bottom_ext)
+    'slot_mask: true = 槽/线圈或非设计区保持不变';
+    sprintf('模式=%s, 扇区 %.1f°', cfg.mode, cfg.theta_span_deg)
 };
 
 end
@@ -165,7 +236,7 @@ function outline = build_slot_outline(cfg)
 %    - slot_depth            : 槽总深度（含 bottom_ext）
 %    - bottom_ext (0.5 mm)   : 底部外延
 %    - lip_w                 : 齿唇宽，控制槽口两侧向内收一点
-
+%
 %  坐标系：v 从齿根圆向外（mm），u 为切向位移（mm，右正）。
 
 v0 = 0;                        % 齿根处

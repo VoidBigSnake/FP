@@ -1,12 +1,12 @@
 function visualize_design_domain(domain)
 %VISUALIZE_DESIGN_DOMAIN 可视化 15° 扇区的设计掩膜与冻结区域。
 %  VISUALIZE_DESIGN_DOMAIN(DOMAIN) 使用 imagesc 显示 design_mask（可编辑）
-%  与 slot_mask（槽/线圈冻结区），帮助确认 stator_design_domain(cfg)
-%  生成的掩膜是否生效。
+%  与 slot_mask（槽/线圈或非设计区），帮助确认 stator_design_domain(cfg)
+%  生成的掩膜是否生效（支持 slot / yoke 两种模式）。
 %
 %  颜色说明：
 %    绿色 = 设计域（true in design_mask）
-%    灰色 = 槽/线圈或边界缓冲（slot_mask 或 edge 区域）
+%    灰色 = 槽/线圈或边界缓冲/非设计环带（slot_mask 或 edge 区域）
 %
 %  提示：掩膜仅用于优化阶段的网格/基因映射，并不会直接修改 FEMM
 %  几何；若希望在 FEMM 中看到结构变化，需要在生成几何时按掩膜
