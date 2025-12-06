@@ -1,44 +1,44 @@
-# Stator Topology Optimization Plan (15° Sector)
+# 定子拓扑优化方案（15° 扇区）
 
-## Goal
-Use the existing immune algorithm (`clonalg.m`) to optimize stator tooth/slot topology within a single 15° sector, then replicate the optimized pattern sixfold around the stator.
+## 目标
+使用现有的免疫算法（`clonalg.m`）在单个 15° 扇区内优化定子齿/槽拓扑，再将优化后的图案复制 6 次环绕定子。
 
-## Design Domain Setup
-- **Sector scope**: one 15° mechanical sector covering stator back-iron, tooth, and slot area that repeats 6× to form 90° for the 12-slot layout.
-- **Symmetry**: build/retain the FEMM model as a quarter (or other) symmetric model, but keep the design variables confined to the 15° sector so that tessellation is straightforward.
-- **Discretization options**:
-  - **Pixel/voxel grid**: subdivide the 15° sector into a polar grid (r–θ) of cells; each cell is binary (material vs. void/air).
-  - **Parameterized primitives**: define a handful of radial/arc control lines to shape tooth walls and slot opening, encoded as continuous parameters.
-  - **Hybrid**: use a coarse binary grid for slot interior plus continuous parameters for tooth/bridge thickness to reduce dimensionality.
-- **Boundary constraints**: lock the outer radius (stator yoke) and inner airgap circle; enforce minimum tooth/bridge thickness to keep mesh solvable and manufacturable.
+## 设计域设置
+- **扇区范围**：一个 15° 机械扇区，覆盖定子轭、齿、槽区域；复制 6 次即可形成 90° 的 12 槽布局。
+- **对称性**：FEMM 模型可保持 1/4（或其他）对称建模，但设计变量仅限于 15° 扇区，便于直接平铺复制。
+- **离散化选项**：
+  - **像素/体素网格**：将 15° 扇区划分为极坐标（r–θ）网格单元；每个单元二值化（材料或空/线圈）。
+  - **参数化图元**：用若干径向/弧向控制线描述齿壁和槽口，作为连续参数编码。
+  - **混合方案**：槽内部用粗二值网格，齿/桥厚度用连续参数，降低维度。
+- **边界约束**：锁定外径（定子轭）和内侧气隙圆；强制最小齿/桥厚度，保证可网格化与可制造性。
 
-## Encoding for CLONALG
-- **Binary genes**: map each grid cell to one bit (1 = iron, 0 = air/copper/void). For a 20×8 (θ×r) grid, that is 160 bits. Extend the genome to include continuous parameters by dedicating bit fields per parameter and decoding them with the existing `decode` pattern.
-- **Fitness function**: replace `myfunc` to accept the decoded material map/parameters and:
-  1. Regenerate the FEMM geometry for the 15° sector by toggling cells/primitives (e.g., drawing blocks or deleting regions) and assigning materials.
-  2. Run `scantorque` (or a fast surrogate) to obtain average torque and ripple.
-  3. Apply constraints/penalties (e.g., minimum area, demag flux density, manufacturability) and compute scalar fitness such as `J = -T_avg + λ·T_ripple + μ·penalties`.
-- **Population size**: keep total bit-length manageable (<256 bits) so hypermutation remains effective and runtime per evaluation stays feasible.
+## CLONALG 编码
+- **二进制基因**：每个网格单元对应 1 个比特（1 = 铁，0 = 空气/铜/空洞）。例如 20×8（θ×r）网格需要 160 位。若要加入连续参数，可为每个参数预留比特段，用现有 `decode` 方式解码。
+- **适应度函数**：重写 `myfunc` 以接收解码出的材料分布/参数并执行：
+  1. 根据比特网格/参数重建 15° 扇区 FEMM 几何（如绘制块或删除区域并赋材质）。
+  2. 运行 `scantorque`（或快速代理模型）获得平均转矩与脉动。
+  3. 施加约束/惩罚（如最小面积、去磁磁密、可制造性），计算标量适应度 `J = -T_avg + λ·T_ripple + μ·penalties`。
+- **种群规模**：保持总比特长度可控（<256 位），以便超变异有效且单次评估运行时间可接受。
 
-## FEMM Automation Notes
-- Prepare a **base template** FEMM file with coils, magnets, boundary conditions, and periodic sector references already defined.
-- Script the **geometry rebuild** within `femmfunc` (or a new helper) to:
-  - Clear only the design-domain entities.
-  - Draw or delete cells according to the bit grid (use `mi_drawpolygon`/`mi_addblocklabel` with material assignment).
-  - Re-mesh the sector (`mi_createmesh`) and solve.
-- After solving the single-sector model, rely on periodic boundaries; if torque is integrated over the sector only, scale by the number of sectors represented when reporting full-machine torque.
+## FEMM 自动化提示
+- 准备一个 **基础模板** FEMM 文件，预先定义线圈、磁体、边界条件和周期扇区引用。
+- 在 `femmfunc`（或新辅助函数）中脚本化 **几何重建**：
+  - 仅清除设计域内的实体。
+  - 按比特网格绘制或删除单元（使用 `mi_drawpolygon`/`mi_addblocklabel` 并赋材质）。
+  - 重新划分网格（`mi_createmesh`）并求解。
+- 单扇区求解后依赖周期边界；若仅在扇区内积分转矩，报告整机转矩时需按扇区数量进行缩放。
 
-## Symmetry Replication
-- For visualization or final validation, replicate the optimized 15° sector six times around the stator (and mirror as needed for full 360°) using rotation copy commands in FEMM.
-- Keep the optimization loop on the single sector to minimize per-iteration solve time; only replicate for final checks.
+## 对称复制
+- 为可视化或最终验证，可将优化后的 15° 扇区绕定子复制 6 次（如需可镜像，形成完整 360°）并在 FEMM 中用旋转复制命令实现。
+- 优化循环保持单扇区求解以减少迭代耗时；仅在最终检查时做全模型复制。
 
-## Runtime & Acceleration
-- **Caching**: memoize evaluations for identical genomes to avoid repeated solves.
-- **Surrogates**: if FEMM is too slow, train a regression model (e.g., RBF or small neural net) on sampled designs to approximate fitness, then refine with FEMM for elites.
-- **Parallelization**: distribute fitness evaluations across CPU cores if FEMM batch mode allows.
+## 运行时与加速
+- **缓存**：对相同基因组的评估做记忆化，避免重复求解。
+- **代理模型**：若 FEMM 过慢，可用采样设计训练回归模型（如 RBF 或小型神经网络）近似适应度，再用 FEMM 精修精英个体。
+- **并行化**：若 FEMM 批处理允许，可将适应度评估分发到多核。
 
-## Next Steps
-1. Choose a grid resolution and map it to bit indices in `clonalg` (adjust chromosome length accordingly).
-2. Prototype a geometry-builder function that reads a bit grid and modifies the FEMM sector template.
-3. Replace `myfunc` with a wrapper that decodes the genome, rebuilds the FEMM sector, runs torque/ripple evaluation, and returns the scalar fitness.
-4. Validate on a few hand-crafted patterns to ensure the torque scaling and boundary conditions are correct before running full optimization.
+## 下一步
+1. 选定网格分辨率并在 `clonalg` 中映射到比特索引（相应调整染色体长度）。
+2. 打样一个几何生成函数，从比特网格读取并修改 FEMM 扇区模板。
+3. 用新的包装替换 `myfunc`：解码基因组，重建 FEMM 扇区，运行转矩/脉动评估并返回标量适应度。
+4. 在少量手工图案上验证转矩缩放与边界条件正确性，再运行完整优化。
