@@ -186,6 +186,8 @@ function [T,pcs] = reprod(N,beta,ind,Ab)
     T = [];
 
    for i = 1:N
+      % round -> MATLAB 的“四舍五入”函数（0.5 远离 0 取整），用来把 beta*N 变成整数
+      % 克隆份数；若 beta*N=3.2 得到 3，若=3.5 得到 4。
       cs(i) = round(beta*N);
       pcs(i) = sum(cs);
       T = [T; ones(cs(i),1) * Ab(ind(end-i+1),:)];
