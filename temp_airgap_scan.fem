@@ -26,7 +26,7 @@
     <c1i> = 0
     <Mu_ssd> = 0
     <Sigma_ssd> = 0
-    <innerangle> = 1
+    <innerangle> = 0
     <outerangle> = 0
   <EndBdry>
   <BeginBdry>
@@ -491,19 +491,19 @@
 [CircuitProps]  = 3
   <BeginCircuit>
     <CircuitName> = "A"
-    <TotalAmps_re> = -0.24414765810443867
-    <TotalAmps_im> = -0
+    <TotalAmps_re> = 2.1431318985078681e-016
+    <TotalAmps_im> = 0
     <CircuitType> = 1
   <EndCircuit>
   <BeginCircuit>
     <CircuitName> = "B"
-    <TotalAmps_re> = 3.1457791620470852
+    <TotalAmps_re> = 3.0310889132455356
     <TotalAmps_im> = 0
     <CircuitType> = 1
   <EndCircuit>
   <BeginCircuit>
     <CircuitName> = "C"
-    <TotalAmps_re> = -2.901631503942645
+    <TotalAmps_re> = -3.0310889132455348
     <TotalAmps_im> = -0
     <CircuitType> = 1
   <EndCircuit>

@@ -775,13 +775,13 @@ function S = build_slot_polys(mouthW, mouthH, bottomW, bottomH, slotDepth,Depth2
     % 槽体六边形（上边是 v1 处的 w1，下边是 v2 处的 w2）
     U = [ ...
          lipW/2, 0;
-         lipW/2,(v1+v12)/2;
+         lipW/2,v12;
          w1/2,  v1;   % 上右    
          w2/2,  v2;   % 下右
          0,  v22;
         -w2/2,  v2;   % 下左    
         -w1/2,  v1;   % 上左
-        -lipW/2,(v1+v12)/2;        
+        -lipW/2,v12;        
         -lipW/2, 0;
     ];
 
@@ -794,20 +794,21 @@ function S = build_slot_polys(mouthW, mouthH, bottomW, bottomH, slotDepth,Depth2
     S.p1=[ -lipW/2, 0];
     S.p2=[ lipW/2, 0];
 
+    h=2+4.35*tan(atan(0.5/3.45))
         S.U2 = [
          w1/2,  v1;   % 上右    
          w2/2,  v2;   % 下右
          0,  v22;
         % -w2/2,  v2;   % 下左    
         % -w1/2,  v1;   % 上左
-           0,v12;
+           0,h;
     ];
                 
         S.U3 = [
         -w1/2,  v1;      
         -w2/2,  v2;  
          0,  v22;
-         0,v12;
+         0,h;
     ];
 
 end

@@ -148,7 +148,7 @@ mi_addcircprop('C', 0, 1);    % C 相
 for k = 1:numel(slot_centers_quarter)
     th_center = slot_centers_quarter(k);
 
-    slot = build_slot_polys(mouthW, mouthH, bottomW, bottomH, slot_depth, depth2, lipW, 0);
+    slot = build_slot_polys(mouthW, mouthH, bottomW, bottomH, slot_depth, depth2, lipW, lipH, 0);
 
     % 1) 画槽体（齿根开口）
     patch_uv2(slot.bodyU, slot.bodyV, R_bore, th_center, [1 1 1], 'none', quarter_span, false);
@@ -748,7 +748,7 @@ function draw_arc_Rbore(R, th1, th2, maxsegdeg, group)
     % mi_clearselected;
 end
 
-function S = build_slot_polys(mouthW, mouthH, bottomW, bottomH, slotDepth,Depth2,lipW, edgeFillet)
+function S = build_slot_polys(mouthW, mouthH, bottomW, bottomH, slotDepth,Depth2,lipW, lipH, edgeFillet)
 % 生成"矩形槽口 + 对称六边形主槽体"的多边形顶点（局部坐标 u/v）
 % 顶点顺序：按顺时针列出，patch 会自动闭合
     %#ok<INUSD>
@@ -758,18 +758,18 @@ function S = build_slot_polys(mouthW, mouthH, bottomW, bottomH, slotDepth,Depth2
     v1 = mouthH;        % 主槽从 v=mouthH 开始
     v2 = bottomH;     % 主槽底
     v22=slotDepth;
-    v12= mouthH+Depth2;
+    v12= lipH;
 
     % 槽体六边形（上边是 v1 处的 w1，下边是 v2 处的 w2）
     U = [ ...
          lipW/2, 0;
-         lipW/2,(v1+v12)/2;
+         lipW/2,v12;
          w1/2,  v1;   % 上右    
          w2/2,  v2;   % 下右
          0,  v22;
         -w2/2,  v2;   % 下左    
         -w1/2,  v1;   % 上左
-        -lipW/2,(v1+v12)/2;        
+        -lipW/2,v12;        
         -lipW/2, 0;
     ];
 
@@ -782,20 +782,21 @@ function S = build_slot_polys(mouthW, mouthH, bottomW, bottomH, slotDepth,Depth2
     S.p1=[ -lipW/2, 0];
     S.p2=[ lipW/2, 0];
 
+    h=2+4.35*tan(atan(0.5/3.45))
         S.U2 = [
          w1/2,  v1;   % 上右    
          w2/2,  v2;   % 下右
          0,  v22;
         % -w2/2,  v2;   % 下左    
         % -w1/2,  v1;   % 上左
-           0,v12;
+           0,h;
     ];
                 
         S.U3 = [
         -w1/2,  v1;      
         -w2/2,  v2;  
          0,  v22;
-         0,v12;
+         0,h;
     ];
 
 end
@@ -1178,8 +1179,8 @@ function [theta_deg, T] = torque_cogging_scan(inp)
     rotor_group = 1;      % 你把转子所有 block 都设成 group=1 了
     innerIndex  = 10;     % ia = Inner Angle, Deg 在 mi_addboundprop 里的索引是 10
 
-    dtheta    = 1;        % 每步 1°
-    maxAngle  = 15;       % 扫 0~90°
+    dtheta    = 3;        % 每步 1°
+    maxAngle  = 45;       % 扫 0~90°
     theta_deg = 0:dtheta:maxAngle;
     nSteps    = numel(theta_deg);
     T         = zeros(nSteps,1);
@@ -1217,7 +1218,7 @@ delta_e = delta_e_deg*pi/180;
 
         % 2.3 在转子组上做转矩积分
         mo_groupselectblock(rotor_group);
-        T(k) = mo_blockintegral(22);    % 22 = Torque
+        T(k) = 4*mo_blockintegral(22);    % 22 = Torque
         mo_clearblock;
         mo_close;
     end
