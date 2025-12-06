@@ -7,7 +7,9 @@ function domain = stator_design_domain(cfg)
 %  1) 'slot'（默认）：槽口矩形 + 六边形槽体被冻结，只在铁轭/齿肩内优化。
 %     适用于“槽不动”的拓扑优化。
 %  2) 'yoke'：直接用径向内外半径限定 15° 扇区的铁轭环带，忽略槽型细节，
-%     适合“只在铁轭”里开窗口或挖孔的场景。
+%     适合“只在铁轭”里开窗口或挖孔的场景；如希望自动跳过槽/线圈，可额外
+%     提供槽几何字段（与 slot 模式相同）以自动冻结槽腔，这样 design_mask
+%     仅覆盖铁轭区域。
 %
 %  公共必填字段：
 %    nr, nt                - 径向/切向单元数（例：8、20）
@@ -26,6 +28,7 @@ function domain = stator_design_domain(cfg)
 %  模式 'yoke' 额外必填字段：
 %    design_r_inner        - 设计域内径（mm），应为铁轭开始半径
 %    design_r_outer        - 设计域外径（mm），不超过 r_outer
+%    （可选）若同时给出槽几何字段与 slot_center_deg，将自动冻结槽腔
 %
 %  CFG 可选字段：
 %    yoke_buffer_deg       - 扇区边界附近的冻结半角，利于周期边界（默认 0）
@@ -47,10 +50,20 @@ function domain = stator_design_domain(cfg)
 %    domain = stator_design_domain(cfg);
 %    visualize_design_domain(domain); % 可视化确认掩膜是否符合预期
 %
-%  示例（只在铁轭环带内优化）：
+%  示例（只在铁轭环带内优化，忽略槽形）：
 %    cfg = struct('nr',8,'nt',24,'r_inner',31.5,'r_outer',55,...
 %      'theta_span_deg',15,'design_r_inner',48,'design_r_outer',55,...
 %      'mode','yoke','yoke_buffer_deg',0.3);
+%    domain = stator_design_domain(cfg);
+%    visualize_design_domain(domain);
+%
+%  示例（在铁轭环带内优化，同时自动识别槽并冻结）：
+%    cfg = struct('nr',8,'nt',24,'r_inner',31.5,'r_outer',55,...
+%      'theta_span_deg',15,'design_r_inner',48,'design_r_outer',55,...
+%      'mode','yoke','yoke_buffer_deg',0.3,'slot_center_deg',7.5,...
+%      'mouth_w',8.7,'mouth_h',2,'top_w',8.7,'top_h',2,...
+%      'bottom_w',15.5,'bottom_h',10.145,'slot_depth',17.5,...
+%      'lip_w',1.8,'bottom_ext',0.5);
 %    domain = stator_design_domain(cfg);
 %    visualize_design_domain(domain);
 %
@@ -167,6 +180,7 @@ edge_mask = (theta_centers <= cfg.yoke_buffer_deg) | ...
 
 slot_outline = struct('u',[],'v',[]);
 slot_mask = false(size(theta_centers));
+slot_frozen_in_yoke = false;
 
 if strcmpi(cfg.mode, 'slot')
     % 槽截面（局部 u/v，多边形顶点顺时针）。
@@ -190,8 +204,35 @@ else
                   (r_centers <= cfg.design_r_outer);
     design_mask = radial_band & ~edge_mask;
 
-    % 将环带外部视为“冻结区”，便于可视化。
-    slot_mask = ~radial_band | edge_mask;
+    % 可选：如果提供了完整槽几何字段，则在 yoke 模式下也自动冻结槽腔，
+    % 确保 design_mask 只作用在铁轭而不触碰槽/线圈。
+    slot_shape_fields = {
+        'mouth_w','mouth_h','top_w','top_h',...
+        'bottom_w','bottom_h','slot_depth','lip_w','bottom_ext'
+    };
+    has_slot_shape = all(cellfun(@(f)isfield(cfg,f), slot_shape_fields));
+    if has_slot_shape
+        if ~isfield(cfg, 'slot_center_deg')
+            slot_center = cfg.theta_span_deg/2; % 缺省取扇区中心
+        else
+            slot_center = cfg.slot_center_deg;
+        end
+
+        tmp_cfg = cfg; % 不修改原结构
+        tmp_cfg.slot_center_deg = slot_center;
+        slot_outline = build_slot_outline(tmp_cfg);
+
+        dtheta_rad = deg2rad(theta_centers - slot_center);
+        u_local = r_centers .* dtheta_rad;
+        v_local = r_centers - cfg.r_inner;
+        in_slot = inpolygon(u_local(:), v_local(:), slot_outline.u, slot_outline.v);
+        slot_mask = reshape(in_slot, size(theta_centers));
+        design_mask = design_mask & ~slot_mask;
+        slot_frozen_in_yoke = true;
+    else
+        % 将环带外部视为“冻结区”，便于可视化。
+        slot_mask = ~radial_band | edge_mask;
+    end
 end
 
 % 汇总结果。
@@ -206,6 +247,13 @@ domain.notes = {
     'slot_mask: true = 槽/线圈或非设计区保持不变';
     sprintf('模式=%s, 扇区 %.1f°', cfg.mode, cfg.theta_span_deg)
 };
+if strcmpi(cfg.mode, 'yoke')
+    if slot_frozen_in_yoke
+        domain.notes{end+1} = 'yoke 模式已按槽几何自动冻结槽腔，仅铁轭可编辑';
+    else
+        domain.notes{end+1} = 'yoke 模式未提供槽几何，未额外识别槽腔';
+    end
+end
 
 end
 
