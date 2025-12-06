@@ -163,16 +163,22 @@ end
 
 function [T,pcs] = reprod(N,beta,ind,Ab)
 
-    % N	   -> number of clones
+    % N    -> number of clones
     % beta -> multiplying factor
     % ind  -> best individuals
     % Ab   -> antibody population
-    
-    % T	   -> temporary population
+
+    % T    -> temporary population
     % pcs  -> final position of each clone
-    
+
+    % 说明：
+    % - 按当前个体优劣顺序（ind 从差到优）逐个取出，克隆数约为 beta*N。
+    % - cs(i) 记录第 i 个原型的克隆数量；pcs(i) 为累积和，标记该批克隆在
+    %   临时族群 T 中的结尾位置，便于后续在每个批次内部选择最优突变体。
+    % - T 通过纵向拼接各批克隆得到：第 i 批等于第 i 个原型的重复行向量。
+
     T = [];
-    
+
    for i = 1:N
       cs(i) = round(beta*N);
       pcs(i) = sum(cs);
