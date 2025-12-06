@@ -35,18 +35,37 @@ function domain = stator_design_domain(cfg)
 %
 %  参见 APPLY_DESIGN_MASK。
 
-arguments
-    cfg.nr (1,1) double {mustBePositive}
-    cfg.nt (1,1) double {mustBePositive}
-    cfg.r_inner (1,1) double {mustBePositive}
-    cfg.r_outer (1,1) double {mustBePositive}
-    cfg.slot_r_inner (1,1) double {mustBePositive}
-    cfg.slot_r_outer (1,1) double {mustBePositive}
-    cfg.slot_span_deg (1,1) double {mustBePositive}
-    cfg.theta_span_deg (1,1) double {mustBePositive}
-    cfg.coil_keepout_deg (1,1) double {mustBeNonnegative} = 0
-    cfg.yoke_buffer_deg (1,1) double {mustBeNonnegative} = 0
+% 使用较老版本 MATLAB/Octave 时，避免 ARGUMENTS 语法带来的解析错误，改为
+% 传统的字段检查与默认值填充。
+required_fields = { ...
+    'nr', 'nt', 'r_inner', 'r_outer', ...
+    'slot_r_inner', 'slot_r_outer', 'slot_span_deg', 'theta_span_deg'};
+for f = required_fields
+    if ~isfield(cfg, f{1})
+        error('缺少必填字段 cfg.%s', f{1});
+    end
 end
+
+% 默认值（如已提供则不覆盖）。
+if ~isfield(cfg, 'coil_keepout_deg'); cfg.coil_keepout_deg = 0; end
+if ~isfield(cfg, 'yoke_buffer_deg');  cfg.yoke_buffer_deg  = 0; end
+
+% 数值检查（正数/非负）。
+mustBePositive = @(v,name) assert(isnumeric(v) && isscalar(v) && v>0, ...
+    '字段 %s 需为正数标量，当前为 %s', name, mat2str(v));
+mustBeNonnegative = @(v,name) assert(isnumeric(v) && isscalar(v) && v>=0, ...
+    '字段 %s 需为非负标量，当前为 %s', name, mat2str(v));
+
+mustBePositive(cfg.nr, 'nr');
+mustBePositive(cfg.nt, 'nt');
+mustBePositive(cfg.r_inner, 'r_inner');
+mustBePositive(cfg.r_outer, 'r_outer');
+mustBePositive(cfg.slot_r_inner, 'slot_r_inner');
+mustBePositive(cfg.slot_r_outer, 'slot_r_outer');
+mustBePositive(cfg.slot_span_deg, 'slot_span_deg');
+mustBePositive(cfg.theta_span_deg, 'theta_span_deg');
+mustBeNonnegative(cfg.coil_keepout_deg, 'coil_keepout_deg');
+mustBeNonnegative(cfg.yoke_buffer_deg, 'yoke_buffer_deg');
 
 if cfg.r_outer <= cfg.r_inner
     error('r_outer must be greater than r_inner (got %.2f vs %.2f).', ...
