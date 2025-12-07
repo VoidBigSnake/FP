@@ -90,11 +90,20 @@ r_centers = r_centers';
 % 槽截面（局部 u/v，多边形顶点顺时针）。
 slot_outline = build_slot_outline(cfg);
 
-% 将极坐标网格转换为槽局部 u/v：
-% u = r*dtheta（切向弧长），v = r - r_inner（径向到齿根距离）。
-dtheta_rad = deg2rad(theta_centers - cfg.slot_center_deg);
-u_local = r_centers .* dtheta_rad;
-v_local = r_centers - cfg.r_inner;
+% u = r_base*dtheta（切向弧长，以内半径为基准，避免沿径向放大），
+% v = r - r_inner（径向到齿根距离）。若扇区角度已小于或等于槽总角宽，
+% 自动将槽中心锚定在扇区起始边，使 15° 扇区呈现半个槽 + 周边铁心。
+r_base = cfg.r_inner;
+slot_full_angle_deg = 2 * rad2deg(max(abs(slot_outline.u)) / r_base);
+
+slot_center_deg = cfg.slot_center_deg;
+if cfg.theta_span_deg <= slot_full_angle_deg
+    slot_center_deg = theta_edges(1); % 扇区左边界，呈现半槽
+end
+
+dtheta_rad = deg2rad(theta_centers - slot_center_deg);
+u_local = r_base .* dtheta_rad;
+v_local = r_centers - r_base;
 
 % 槽/线圈冻结区：在槽口矩形 + 六边形槽体多边形内部。
 in_slot = inpolygon(u_local(:), v_local(:), slot_outline.u, slot_outline.v);
