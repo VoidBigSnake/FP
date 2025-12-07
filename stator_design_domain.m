@@ -1,20 +1,16 @@
 function domain = stator_design_domain(cfg)
-%STATORDESIGNDOMAIN 构建 15° 定子扇区的设计掩膜（槽口矩形 + 六边形槽体）。
-%  DOMAIN = STATORDESIGNDOMAIN(CFG) 返回网格边界与逻辑掩膜，
-%  描述优化器可以编辑的极坐标单元。槽型按 strukturFemm 中的参数：
-%  槽口矩形（宽/高） + 六边形槽体（上宽、上高、底宽、底高、底部外延0.5、齿唇宽）。
+
 %
 %  CFG 必填字段：
 %    nr, nt                - 径向/切向单元数（例：8、20）
 %    r_inner, r_outer      - 定子内/外半径（mm）
 %    theta_span_deg        - 设计扇区总角度（度，例：15）
 %    slot_center_deg       - 该扇区内槽中心角（度，通常=theta_span_deg/2）
-%    mouth_w, mouth_h      - 槽口矩形的宽/高（mm）
+%    lip_w, lip_h      - 槽口矩形的宽/高（mm）
 %    top_w,  top_h         - 槽体上边宽、上边到槽口顶的高（mm）
 %    bottom_w, bottom_h    - 槽体底边宽、槽体高度（mm）
 %    slot_depth            - 槽总深度（mm，含底部外延）
 %    lip_w                 - 齿唇宽（mm，对应槽口两侧微收口）
-%    bottom_ext            - 槽底向外额外外延量（mm，结构图中 0.5）
 %
 %  CFG 可选字段：
 %    yoke_buffer_deg       - 扇区边界附近的冻结半角，利于周期边界（默认 0）
@@ -27,11 +23,7 @@ function domain = stator_design_domain(cfg)
 %    notes                 - 文字提醒
 %
 %  示例：
-%    cfg = struct('nr',8,'nt',24,'r_inner',31.5,'r_outer',55,...
-%      'theta_span_deg',15,'slot_center_deg',7.5,...
-%      'mouth_w',8.7,'mouth_h',1.8,'top_w',8.7,'top_h',2,...
-%      'bottom_w',15.5,'bottom_h',10.145,'slot_depth',17.5,...
-%      'lip_w',1.8,'bottom_ext',0.5,'yoke_buffer_deg',0.3);
+%    cfg = struct(
 %    domain = stator_design_domain(cfg);
 %    visualize_design_domain(domain); % 可视化确认掩膜是否符合预期
 %
@@ -78,7 +70,7 @@ if cfg.r_outer <= cfg.r_inner
 end
 
 if cfg.slot_depth <= cfg.lip_h
-    error('slot_depth must exceed mouth_h (got %.2f vs %.2f).', ...
+    error('slot_depth must exceed lip_h (got %.2f vs %.2f).', ...
           cfg.slot_depth, cfg.lip_h);
 end
 
@@ -122,11 +114,12 @@ domain.theta_edges = theta_edges;
 domain.design_mask = design_mask;
 domain.slot_mask = slot_mask;
 domain.slot_outline_uv = slot_outline;
+domain.slot_center_deg = cfg.slot_center_deg;
 domain.notes = {
     'design_mask: true = 优化器可切换铁/空气，false = 冻结';
     'slot_mask: true = 槽/线圈区保持不变（槽口矩形 + 六边形槽体）';
     'apply_design_mask(bits, domain, base_val) 会强制冻结区域';
-    sprintf('sector %.1f° @ center %.2f°, mouth %.1f×%.1f mm, top %.1f×%.1f mm, bottom %.1f×%.1f mm (+%.2f)', ...
+        sprintf('sector %.1f° @ center %.2f°, lip %.1f×%.1f mm, top %.1f×%.1f mm, bottom %.1f×%.1f mm', ...
             cfg.theta_span_deg, cfg.slot_center_deg, ...
             cfg.lip_w, cfg.lip_h, cfg.top_w, cfg.top_h, ...
             cfg.bottom_w, cfg.bottom_h)
@@ -175,15 +168,15 @@ w_bottom= cfg.bottom_w/2;
 w_lip   = cfg.lip_w/2; % 齿唇微收口（v=0 处）
 
 outline_u = [ ...
-    w_lip, v0;          % 齿唇处（略窄）
-    w_lip, v_lip;   % 槽口矩形右上
-    w_top, v_top;       % 槽体上边右端
-    w_bottom, v_bottom; % 槽体底边右端
-    0, v_tip;           % 底尖
-   -w_bottom, v_bottom; % 底边左端
-   -w_top, v_top;       % 上边左端
-   -w_lip, v_lip;   % 槽口矩形左上
-   -w_lip, v0           % 齿唇处（略窄）
+    w_lip, v0;          
+    w_lip, v_lip;   
+    w_top, v_top;       
+    w_bottom, v_bottom; 
+    0, v_tip;           
+   -w_bottom, v_bottom; 
+   -w_top, v_top;       
+   -w_lip, v_lip;   
+   -w_lip, v0          
 ];
 
 % 变为行向量，便于 inpolygon 调用。

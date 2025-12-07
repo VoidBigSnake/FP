@@ -24,26 +24,48 @@ plot_mask = zeros(size(mask));
 plot_mask(mask) = 1;      % 设计域
 plot_mask(slot) = -1;     % 槽/线圈冻结区
 
-imagesc(plot_mask');
+% 以物理尺度显示，避免索引坐标导致的拉伸：
+%   x 轴 = 切向弧长（以内半径为基准），y 轴 = 径向距离。
+r_edges = domain.r_edges;
+theta_edges = domain.theta_edges;
+r_base = r_edges(1);
+
+u_min = deg2rad(theta_edges(1)) * r_base;
+u_max = deg2rad(theta_edges(end)) * r_base;
+v_min = 0;
+v_max = r_edges(end) - r_base;
+
+imagesc([u_min, u_max], [v_min, v_max], plot_mask');
 axis equal tight; axis ij;
 colormap([0.5 0.5 0.5; 0 0.7 0]);
 colorbar('Ticks',[-1 1],'TickLabels',{'冻结区','设计域'});
 title('设计域掩膜（15° 扇区）');
-xlabel('切向单元索引');
-ylabel('径向单元索引');
+xlabel('切向弧长 / mm（r = r_{in}）');
+ylabel('径向距离 / mm');
 
 % 如提供槽轮廓（局部 u/v），在图上覆盖轮廓线，便于对齐检查。
 if isfield(domain, 'slot_outline_uv')
     hold on;
     u = domain.slot_outline_uv.u;
     v = domain.slot_outline_uv.v;
-    plot((u - min(u)) / (max(u)-min(u)+eps) * (size(mask,1)-1) + 1, ...
-         (v - min(v)) / (max(v)-min(v)+eps) * (size(mask,2)-1) + 1, ...
-         'k-', 'LineWidth', 1.2, 'DisplayName', '槽轮廓参考');
+    if isfield(domain, 'slot_center_deg')
+        slot_center_deg = domain.slot_center_deg;
+    else
+        slot_center_deg = (theta_edges(1) + theta_edges(end)) / 2;
+    end
+
+    % 局部坐标 -> 物理弧长/径向距离，与 imagesc 的坐标一致。
+    r = r_base + v;
+    theta = slot_center_deg + rad2deg(u ./ max(r, eps));
+
+    u_abs = deg2rad(theta) * r_base; % 以内半径为基准的弧长
+    v_abs = v;
+
+    plot(u_abs, v_abs, 'k-', 'LineWidth', 1.2, 'DisplayName', '槽轮廓参考');
     hold off;
 end
 
 gridsize = size(mask);
-text(1, gridsize(2)+0.3, sprintf('nt=%d, nr=%d', gridsize(1), gridsize(2)));
+text(u_min, v_max + (v_max - v_min)*0.02, sprintf('nt=%d, nr=%d', gridsize(1), gridsize(2)));
 
 end
