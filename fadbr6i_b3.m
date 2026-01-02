@@ -1,6 +1,6 @@
 function femm_apply_design_bits_rep6_inset( ...
     gene, domain, ctx, phase_id_sector, mats, circNames, ...
-    groupIdCore, groupIdRing, groupIdCuGeom, turns_per_circ)
+    groupIdCore, groupIdRing, groupIdCuGeom, turns_per_circ)%这一版已经可以去除材料边界，并且删除多余标签
 
 Nd = domain.Nd;
 

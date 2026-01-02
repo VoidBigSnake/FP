@@ -1,6 +1,6 @@
 function femm_apply_design_bits_rep6_inset( ...
     gene, domain, ctx, phase_id_sector, mats, circNames, ...
-    groupIdCore, groupIdRing, groupIdCuGeom, turns_per_circ)
+    groupIdCore, groupIdRing, groupIdCuGeom, turns_per_circ)%目前这一版能够删除除了铜之外的相同材料之间的边界
 
 Nd = domain.Nd;
 
@@ -79,7 +79,6 @@ for s = 1:nSector
         % ===== 删除相同材料(仅空气/铁)之间的内部边界线 =====
     keyMerge = build_merge_keys(mat_code);
     delete_internal_boundaries_sector(r_edges, theta_edges, c0, Cs, isMirror, nr, nt, keyMerge, ir_of_k, it_of_k);
-       keep_big_label = keep_one_label_per_region(nr, nt, keyMerge, ir_of_k, it_of_k);
 
     for k = 1:Nd
         code = mat_code(k);
@@ -95,12 +94,10 @@ for s = 1:nSector
         end
 
         % ---- 放"大格子"label（用 ring 点）----
-     if keep_big_label(k)
-            mi_addblocklabel(xr(k), yr(k));
-            mi_selectlabel(xr(k), yr(k));
-            mi_setblockprop(matBig, 1, 0, circBig, 0, groupIdRing, 0);
-            mi_clearselected();
-        end
+        mi_addblocklabel(xr(k), yr(k));
+        mi_selectlabel(xr(k), yr(k));
+        mi_setblockprop(matBig, 1, 0, circBig, 0, groupIdRing, 0);
+        mi_clearselected();
 
         % ---- 如果是铜：生成小格子边界 + 放铜label（用 core 点）----
         if code == 2
@@ -214,64 +211,6 @@ for k = 1:Nd
         keyMerge(k) = 100; % air
     elseif mat_code(k) == 1
         keyMerge(k) = 200; % iron
-    end
-end
-end
-
-% ======================================================================
-% 每个连通区域只保留一个"大格子"label
-% ======================================================================
-function keep_label = keep_one_label_per_region(nr, nt, key, ir_of_k, it_of_k)
-keyGrid = nan(nr, nt);
-kGrid = nan(nr, nt);
-for k = 1:numel(key)
-    keyGrid(ir_of_k(k), it_of_k(k)) = key(k);
-    kGrid(ir_of_k(k), it_of_k(k)) = k;
-end
-
-keep_label = false(numel(key), 1);
-visited = false(nr, nt);
-
-for i = 1:nr
-    for j = 1:nt
-        if visited(i,j)
-            continue;
-        end
-        if isnan(keyGrid(i,j))
-            visited(i,j) = true;
-            continue;
-        end
-
-        targetKey = keyGrid(i,j);
-        stack = [i, j];
-        visited(i,j) = true;
-        rep_k = kGrid(i,j);
-
-        while ~isempty(stack)
-            ci = stack(end,1);
-            cj = stack(end,2);
-            stack(end,:) = [];
-
-            neighbors = [ci-1, cj; ci+1, cj; ci, cj-1; ci, cj+1];
-            for n = 1:4
-                ni = neighbors(n,1);
-                nj = neighbors(n,2);
-                if ni < 1 || ni > nr || nj < 1 || nj > nt
-                    continue;
-                end
-                if visited(ni,nj)
-                    continue;
-                end
-                if keyGrid(ni,nj) == targetKey
-                    visited(ni,nj) = true;
-                    stack = [stack; ni, nj]; %#ok<AGROW>
-                end
-            end
-        end
-
-        if ~isnan(rep_k)
-            keep_label(rep_k) = true;
-        end
     end
 end
 end
