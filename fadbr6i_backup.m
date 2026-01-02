@@ -1,4 +1,4 @@
-function femm_apply_design_bits_rep6_inset( ...
+function femm_apply_design_bits_rep6_inset_backup( ...
     gene, domain, ctx, phase_id_sector, mats, circNames, ...
     groupIdCore, groupIdRing, groupIdCuGeom, turns_per_circ)
 
@@ -76,35 +76,28 @@ for s = 1:nSector
     xc = r0c .* cosd(th_c);  yc = r0c .* sind(th_c);
     xr = r0r .* cosd(th_r);  yr = r0r .* sind(th_r);
 
-    % ===== 删除相同材料(空气/铁)之间的内部边界线 =====
-    keyMergeRing = build_merge_keys_ring(mat_code);
-    delete_internal_boundaries_sector(r_edges, theta_edges, c0, Cs, isMirror, nr, nt, keyMergeRing, ir_of_k, it_of_k);
-
-    % ===== 合并后的 ring 区域只放一个材料标签（避免重复label）=====
-    keyGridRing = build_key_grid(keyMergeRing, nr, nt, ir_of_k, it_of_k);
-    kGrid = build_k_grid(nr, nt, ir_of_k, it_of_k);
-    groupsRing = connected_components_grid(keyGridRing, nr, nt);
-    for g = 1:numel(groupsRing)
-        rep = groupsRing{g}(1);
-        [ir, it] = ind2sub([nr, nt], rep);
-        k = kGrid(ir, it);
-        if isnan(k)
-            continue;
-        end
-        if mat_code(k) == 1
-            matRing = mats.iron;
-        else
-                 matRing = mats.air;
-        end
-
-        mi_addblocklabel(xr(rep), yr(rep));
-        mi_selectlabel(xr(rep), yr(rep));
-        mi_setblockprop(matRing, 1, 0, '', 0, groupIdRing, 0);
-        mi_clearselected();
-    end
+        % ===== 删除相同材料(仅空气/铁)之间的内部边界线 =====
+    keyMerge = build_merge_keys(mat_code);
+    delete_internal_boundaries_sector(r_edges, theta_edges, c0, Cs, isMirror, nr, nt, keyMerge);
 
     for k = 1:Nd
         code = mat_code(k);
+
+        % ========== 非铜：只保留"大格子一个材料"，不生成小格子 ==========
+        if code == 0
+            matBig = mats.air;  circBig = '';  Nturns = 0;
+        elseif code == 1
+            matBig = mats.iron; circBig = '';  Nturns = 0;
+        else
+            % ========== 铜：大格子外层强制为空气，小格子内部为铜 ==========
+            matBig = mats.air;  circBig = '';  Nturns = 0;
+        end
+
+        % ---- 放"大格子"label（用 ring 点）----
+        mi_addblocklabel(xr(k), yr(k));
+        mi_selectlabel(xr(k), yr(k));
+        mi_setblockprop(matBig, 1, 0, circBig, 0, groupIdRing, 0);
+        mi_clearselected();
 
         % ---- 如果是铜：生成小格子边界 + 放铜label（用 core 点）----
         if code == 2
@@ -117,8 +110,8 @@ for s = 1:nSector
             end
 
             % 1) 动态生成"小格子"边界（在该大格子内部收缩一圈）
-            add_inner_cell_boundary(k, s, isMirror, Cs, c0, ...
-                nr, nt, r_edges, theta_edges, sh_r, sh_th, groupIdCuGeom, ir_of_k, it_of_k);
+add_inner_cell_boundary(k, s, isMirror, Cs, c0, ...
+    nr, nt, r_edges, theta_edges, sh_r, sh_th, groupIdCuGeom, ir_of_k, it_of_k);
 
             % 2) 放铜label（小格子内部）
             mi_addblocklabel(xc(k), yc(k));
@@ -155,7 +148,7 @@ ti1 = th1 + dth; ti2 = th2 - dth;
 
 % 映射到第 s 个扇区（按你原来的"以 c0 为镜像轴"的方式）
 mapTh = @(th_base) (~isMirror) * (Cs + (th_base - c0)) + ...
-    ( isMirror) * (Cs - (th_base - c0));
+                   ( isMirror) * (Cs - (th_base - c0));
 
 T1 = mapTh(ti1);
 T2 = mapTh(ti2);
@@ -208,16 +201,18 @@ thw = thw + th_start;
 end
 
 % ======================================================================
-% ring 合并 key：空气/铁合并，铜也视为空气（外圈空气一起合并）
+% 生成"可合并"的 key：空气/铁允许合并，铜不合并（给唯一key）
 % ======================================================================
-function keyMerge = build_merge_keys_ring(mat_code)
+function keyMerge = build_merge_keys(mat_code)
 Nd = numel(mat_code);
 keyMerge = zeros(Nd,1);
 for k = 1:Nd
-    if mat_code(k) == 1
+    if mat_code(k) == 0
+        keyMerge(k) = 100; % air
+    elseif mat_code(k) == 1
         keyMerge(k) = 200; % iron
     else
-        keyMerge(k) = 100; % air (include copper cells' outer air)
+        keyMerge(k) = 1000 + k; % copper: unique key (no merge)
     end
 end
 end
@@ -228,9 +223,7 @@ end
 % - 径向边界：theta = theta_edges(j+1)
 % - 不动扇区左右边界，所以切向只遍历 j=1..nt-1
 % ======================================================================
-function delete_internal_boundaries_sector(r_edges, theta_edges, c0, Cs, isMirror, nr, nt, key, ir_of_k, it_of_k)
-
-keyGrid = build_key_grid(key, nr, nt, ir_of_k, it_of_k);
+function delete_internal_boundaries_sector(r_edges, theta_edges, c0, Cs, isMirror, nr, nt, key)
 
 % A) radial 邻居之间：删圆弧边界
 for j = 1:nt
@@ -238,7 +231,9 @@ for j = 1:nt
     th_mid = map_theta(th_mid_base, c0, Cs, isMirror);
 
     for i = 1:(nr-1)
-        if keyGrid(i,j) == keyGrid(i+1,j)
+        k1 = (j-1)*nr + i;
+        k2 = k1 + 1;
+        if key(k1) == key(k2)
             r = r_edges(i+1);
             x = r*cosd(th_mid); y = r*sind(th_mid);
 
@@ -267,7 +262,9 @@ for j = 1:(nt-1)
     th = map_theta(th_base, c0, Cs, isMirror);
 
     for i = 1:nr
-        if keyGrid(i,j) == keyGrid(i,j+1)
+        k1 = (j-1)*nr + i;
+        k2 = j*nr + i;
+        if key(k1) == key(k2)
             rmid = 0.5*(r_edges(i) + r_edges(i+1));
             x = rmid*cosd(th); y = rmid*sind(th);
             try
@@ -284,80 +281,6 @@ end
 end
 
 % ======================================================================
-% key 向 (ir,it) 网格映射
-% ======================================================================
-function keyGrid = build_key_grid(key, nr, nt, ir_of_k, it_of_k)
-keyGrid = nan(nr, nt);
-for k = 1:numel(key)
-    keyGrid(ir_of_k(k), it_of_k(k)) = key(k);
-end
-end
-
-% ======================================================================
-% k 向 (ir,it) 网格映射
-% ======================================================================
-function kGrid = build_k_grid(nr, nt, ir_of_k, it_of_k)
-kGrid = nan(nr, nt);
-for k = 1:numel(ir_of_k)
-    kGrid(ir_of_k(k), it_of_k(k)) = k;
-end
-end
-
-% ======================================================================
-% 连通域（4邻域）分组：相同key且相邻则 union
-% 返回：groups{g}=该连通域包含的cell索引（线性k索引）
-% ======================================================================
-function groups = connected_components_grid(keyGrid, nr, nt)
-Nd = nr * nt;
-parent = (1:Nd)';
-
-    function r = ffind(a)
-        r = a;
-        while parent(r) ~= r
-            parent(r) = parent(parent(r));
-            r = parent(r);
-        end
-    end
-
-    function funion(a,b)
-        ra = ffind(a);
-        rb = ffind(b);
-        if ra ~= rb
-            parent(rb) = ra;
-        end
-    end
-
-% union radial neighbors
-for j = 1:nt
-    base = (j-1)*nr;
-    for i = 1:(nr-1)
-        if keyGrid(i,j) == keyGrid(i+1,j)
-            funion(base + i, base + i + 1);
-        end
-    end
-end
-
-% union tangential neighbors
-for j = 1:(nt-1)
-    base1 = (j-1)*nr;
-    base2 = j*nr;
-    for i = 1:nr
-        if keyGrid(i,j) == keyGrid(i,j+1)
-            funion(base1 + i, base2 + i);
-        end
-    end
-end
-
-roots = zeros(Nd,1);
-for k = 1:Nd
-    roots(k) = ffind(k);
-end
-
-tmp = accumarray(roots, (1:Nd)', [Nd,1], @(x){x}, {[]});
-groups = tmp(~cellfun(@isempty,tmp));
-end
-
-% ======================================================================
 % theta 映射：基域角度 -> 第 s 扇区角度（与你原镜像规则一致）
 % ======================================================================
 function th_out = map_theta(th_in, c0, Cs, isMirror)
@@ -368,3 +291,4 @@ else
     th_out = Cs - d;
 end
 end
+

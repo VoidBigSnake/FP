@@ -46,7 +46,7 @@ ctx.sector_offsets_deg = 0:15:75;        % 或者 30+0:15:75 之类
 ctx.phase_id_sector    = phase_id_sector;
 ctx.groupId_design     = 30;             % 设计域 group 号你自己定
 
-ctx.baseFemFile = 'blank.fem';
+ctx.baseFemFile = 'blank_18x10.fem';
 
 ctx.mats = struct();
 ctx.mats.air      = 'Air';

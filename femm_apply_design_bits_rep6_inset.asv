@@ -93,8 +93,6 @@ for s = 1:nSector
         end
         if mat_code(k) == 1
             matRing = mats.iron;
-        else
-                 matRing = mats.air;
         end
 
         mi_addblocklabel(xr(rep), yr(rep));
@@ -290,16 +288,6 @@ function keyGrid = build_key_grid(key, nr, nt, ir_of_k, it_of_k)
 keyGrid = nan(nr, nt);
 for k = 1:numel(key)
     keyGrid(ir_of_k(k), it_of_k(k)) = key(k);
-end
-end
-
-% ======================================================================
-% k 向 (ir,it) 网格映射
-% ======================================================================
-function kGrid = build_k_grid(nr, nt, ir_of_k, it_of_k)
-kGrid = nan(nr, nt);
-for k = 1:numel(ir_of_k)
-    kGrid(ir_of_k(k), it_of_k(k)) = k;
 end
 end
 
