@@ -54,8 +54,8 @@ mustBePositive(cfg.nr, 'nr');
 mustBePositive(cfg.nt, 'nt');
 mustBePositive(cfg.r_inner, 'r_inner');
 mustBePositive(cfg.r_outer, 'r_outer');
-mustBePositive(cfg.lip_w, 'mouth_w');
-mustBePositive(cfg.lip_h, 'mouth_h');
+mustBePositive(cfg.lip_w, 'lip_w');
+mustBePositive(cfg.lip_h, 'lip_h');
 mustBePositive(cfg.top_w, 'top_w');
 mustBePositive(cfg.top_h, 'top_h');
 mustBePositive(cfg.bottom_w, 'bottom_w');
@@ -79,42 +79,87 @@ if cfg.slot_depth <= cfg.top_h + cfg.bottom_h
           cfg.slot_depth, cfg.top_h + cfg.bottom_h);
 end
 
-% 构建网格边界与中心。
-r_edges = linspace(cfg.r_inner, cfg.r_outer, cfg.nr + 1);
-theta_edges = linspace(0, cfg.theta_span_deg, cfg.nt + 1); % 角度制
-[theta_centers, r_centers] = meshgrid(  theta_edges(1:end-1) + diff(theta_edges)/2,r_edges(1:end-1) + diff(r_edges)/2);
-% theta_centers 为 nt×1，并在行方向复制；转置后方便掩膜运算。
-theta_centers = theta_centers';
-r_centers = r_centers';
+% ---------- 构建网格 ----------
+r_edges     = linspace(cfg.r_inner, cfg.r_outer, cfg.nr + 1);
+theta_edges = linspace(0, cfg.theta_span_deg, cfg.nt + 1);
 
-% 槽截面（局部 u/v，多边形顶点顺时针）。
+r_cent_1d     = r_edges(1:end-1)    + diff(r_edges)/2;
+theta_cent_1d = theta_edges(1:end-1) + diff(theta_edges)/2;
+
+[theta_centers, r_centers] = meshgrid(theta_cent_1d, r_cent_1d);
+theta_centers = theta_centers';   % nt×nr
+r_centers     = r_centers';
+
+% 槽截面
 slot_outline = build_slot_outline(cfg);
 
-% u = r_base*dtheta（切向弧长，以内半径为基准，避免沿径向放大），
-% v = r - r_inner（径向到齿根距离）。若扇区角度已小于或等于槽总角宽，
-% 自动将槽中心锚定在扇区起始边，使 15° 扇区呈现半个槽 + 周边铁心。
-r_base = cfg.r_inner;
-slot_full_angle_deg = 2 * rad2deg(max(abs(slot_outline.u)) / r_base);
-
+% 槽中心角：注意这里可能被重定义（半槽模式）
 slot_center_deg = cfg.slot_center_deg;
+r_mid = cfg.r_inner + cfg.slot_depth/2;
+slot_full_angle_deg = 2 * rad2deg(max(abs(slot_outline.u)) / r_mid);
+
 if cfg.theta_span_deg <= slot_full_angle_deg
     slot_center_deg = theta_edges(1); % 扇区左边界，呈现半槽
 end
 
+% 用统一的 slot_center_deg 映射中心点 (u_local, v_local)
 dtheta_rad = deg2rad(theta_centers - slot_center_deg);
-u_local = r_base .* dtheta_rad;
-v_local = r_centers - r_base;
+v_local    = r_centers - cfg.r_inner;
+u_local    = r_centers .* dtheta_rad;
 
-% 槽/线圈冻结区：在槽口矩形 + 六边形槽体多边形内部。
-in_slot = inpolygon(u_local(:), v_local(:), slot_outline.u, slot_outline.v);
-slot_mask = reshape(in_slot, size(theta_centers));
+% ---------- 精细版槽掩膜 ----------
+[nt, nr] = size(theta_centers);
+slot_mask = false(nt, nr);
 
-% 扇区边界附近的缓冲区，保持周期边界节点稳定。
-edge_mask = (theta_centers <= cfg.yoke_buffer_deg) | ...
-            (theta_centers >= (cfg.theta_span_deg - cfg.yoke_buffer_deg));
+for it = 1:nt
+    th1 = theta_edges(it);
+    th2 = theta_edges(it+1);
 
-% 设计掩膜：仅允许在轭/齿肩编辑，不包含槽与边界缓冲区。
+    % 这里也要用同一个 slot_center_deg，而不是 cfg.slot_center_deg
+    dth1 = deg2rad(th1 - slot_center_deg);
+    dth2 = deg2rad(th2 - slot_center_deg);
+
+    for ir = 1:nr
+        r1 = r_edges(ir);
+        r2 = r_edges(ir+1);
+
+        v1 = r1 - cfg.r_inner;
+        v2 = r2 - cfg.r_inner;
+
+        u11 = r1 * dth1; v11 = v1;
+        u12 = r2 * dth1; v12 = v2;
+        u21 = r2 * dth2; v21 = v2;
+        u22 = r1 * dth2; v22 = v1;
+
+        u_corners = [u11, u12, u21, u22];
+        v_corners = [v11, v12, v21, v22];
+
+        u0 = u_local(it, ir);
+        v0 = v_local(it, ir);
+
+        uu = [u_corners, u0];
+        vv = [v_corners, v0];
+
+        in = inpolygon(uu, vv, slot_outline.u, slot_outline.v);
+        slot_mask(it, ir) = any(in);
+    end
+end
+
+% ---------- 用角度窗口裁剪掉"离槽太远"的误伤单元 ----------
+half_angle = slot_full_angle_deg / 2;     % 槽半宽（度）
+margin_deg = 0.3;                         % 给一点富余，比如 0.3° 可调
+
+% 单元中心相对槽中心的角度偏差（度）
+ang_offset = abs(theta_centers - slot_center_deg);
+
+% 对偏差大于半槽角宽+裕度的单元，强制认为"不属于槽"
+slot_mask(ang_offset > (half_angle + margin_deg)) = false;
+
+edge_mask   = (theta_centers <= cfg.yoke_buffer_deg) | ...
+              (theta_centers >= (cfg.theta_span_deg - cfg.yoke_buffer_deg));
+
 design_mask = ~slot_mask & ~edge_mask;
+
 
 % 汇总结果。
 domain = struct();

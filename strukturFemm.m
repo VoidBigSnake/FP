@@ -1180,7 +1180,7 @@ function [theta_deg, T] = torque_cogging_scan(inp)
     innerIndex  = 10;     % ia = Inner Angle, Deg 在 mi_addboundprop 里的索引是 10
 
     dtheta    = 3;        % 每步 1°
-    maxAngle  = 45;       % 扫 0~90°
+    maxAngle  = 15;       % 扫 0~90°
     theta_deg = 0:dtheta:maxAngle;
     nSteps    = numel(theta_deg);
     T         = zeros(nSteps,1);
@@ -1218,7 +1218,7 @@ delta_e = delta_e_deg*pi/180;
 
         % 2.3 在转子组上做转矩积分
         mo_groupselectblock(rotor_group);
-        T(k) = 4*mo_blockintegral(22);    % 22 = Torque
+        T(k) = mo_blockintegral(22);    % 22 = Torque
         mo_clearblock;
         mo_close;
     end
@@ -1234,10 +1234,20 @@ delta_e = delta_e_deg*pi/180;
     % closefemm;   % 需要的话自己决定什么时候关
 end
 
-% [theta_deg, T] = torque_cogging_scan(Is_amp)
-% 
-%     T_avg    = mean(T);
-%     T_max    = max(T);
-%     T_min    = min(T);
-%     T_ripple = (T_max - T_min)/T_avg;
+[theta_deg, T] = torque_cogging_scan(Is_amp)
+
+    T_avg    = mean(T);
+    T_max    = max(T);
+    T_min    = min(T);
+    T_ripple = (T_max - T_min)/T_avg;
+
+
+    T_low=0.6;
+    penaltyCoef = 10;
+    if T_avg < T_low
+        penalty = penaltyCoef * (T_low - T_avg)/T_low;
+    else
+        penalty = 0;
+    end
+    J = T_ripple + penalty;
 
