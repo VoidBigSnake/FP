@@ -14,7 +14,7 @@ addpath('C:\femm42\mfiles');   % 内含 femm.m 和一堆 mi_*/mo_* 封装函数
 savepath;                                     % 可选：下次自动生效
 openfemm;
 newdocument(0);  % 磁场
-mi_probdef(0,'millimeters','planar',1e-8,36,25);
+mi_probdef(0,'millimeters','planar',1e-8,36,20);
 
 %% ---------- 基本参数 ----------
    cfg = struct('nr',18,'nt',10,'r_inner',31.5,'r_outer',52,...
@@ -431,9 +431,13 @@ domain = prepare_design_domain(domain, theta0_deg);
     th_span     = theta_edges(end) - theta_edges(1);   % 扇区角宽，例如 15°
     nSector     = round(90 / th_span);                 % 一般 = 6
 
+
+    for s = 1:(18)
+    draw_arc(R_bore+s*(R_sy_out-R_bore-2)/18, quarter_span(1), quarter_span(2), 10, 3);
+    end
     for s = 0:(nSector-1)
         theta_offset_s = theta0_deg + s * th_span;
-        % femm_draw_design_grid(domain, theta_offset_s, 3);
+        femm_draw_design_grid(domain, theta_offset_s, 3);
         % femm_draw_design_grid_inset(domain, theta_offset_s, 3, 0.2, 0.2);  % 内缩边界（双层）
     end
 
@@ -458,13 +462,15 @@ function draw_arc(R, th1, th2, maxsegdeg, group)
     [x2,y2] = pol2cart_deg(R, th2);
 
     dth  = th2 - th1;                         % 扫角，可以正也可以负
-    nseg = 1; % 分段数必须是正数，至少 1 段 %就1段就可以了
+    nseg = maxsegdeg; % 分段数必须是正数，至少 1 段 %就1段就可以了
 
     mi_addnode(x1,y1);
     mi_addnode(x2,y2);
     mi_addarc(x1,y1, x2,y2, dth, nseg);
 
-    mi_selectarcsegment( (x1+x2)/2, (y1+y2)/2 );
+    thm = (th1 + th2)/2;
+[xm, ym] = pol2cart_deg(R, thm);
+mi_selectarcsegment(xm, ym);
     mi_setarcsegmentprop(maxsegdeg, '', 0, group);
     mi_clearselected;
 end

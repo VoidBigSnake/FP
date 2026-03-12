@@ -7,9 +7,10 @@ clear; clc; close all;
 fprintf('Script pwd = %s\n', pwd);
 addpath('C:\femm42\mfiles');   % 内含 femm.m 和一堆 mi_*/mo_* 封装函数
 savepath;                                     % 可选：下次自动生效
+%%
 openfemm;
 newdocument(0);  % 磁场
-mi_probdef(0,'millimeters','planar',1e-8,36,25);
+mi_probdef(0,'millimeters','planar',1e-8,36,15);
 
 %% ---------- 基本参数 ----------
 Q       = 12;                 % 槽数
@@ -1179,8 +1180,8 @@ function [theta_deg, T] = torque_cogging_scan(inp)
     rotor_group = 1;      % 你把转子所有 block 都设成 group=1 了
     innerIndex  = 10;     % ia = Inner Angle, Deg 在 mi_addboundprop 里的索引是 10
 
-    dtheta    = 3;        % 每步 1°
-    maxAngle  = 15;       % 扫 0~90°
+    dtheta    = 1;        % 每步 1°
+    maxAngle  = 90;       % 扫 0~90°
     theta_deg = 0:dtheta:maxAngle;
     nSteps    = numel(theta_deg);
     T         = zeros(nSteps,1);
@@ -1242,12 +1243,12 @@ end
     T_ripple = (T_max - T_min)/T_avg;
 
 
-    T_low=0.6;
-    penaltyCoef = 10;
-    if T_avg < T_low
-        penalty = penaltyCoef * (T_low - T_avg)/T_low;
-    else
-        penalty = 0;
-    end
-    J = T_ripple + penalty;
+    % T_low=0.6;
+    % penaltyCoef = 10;
+    % if T_avg < T_low
+    %     penalty = penaltyCoef * (T_low - T_avg)/T_low;
+    % else
+    %     penalty = 0;
+    % end
+    % J = T_ripple + penalty;
 

@@ -38,7 +38,7 @@ delta_e = delta_e_deg*pi/180;
     mi_modifycircprop('C+', 1, Ic);
     mi_modifycircprop('C-', 1, -Ic);
         % 2.2 求解
-        mi_analyze(false);
+        mi_analyze(1);
         mi_loadsolution;
         % mi_zoomnatural;           % 自动缩放到合适大小
 

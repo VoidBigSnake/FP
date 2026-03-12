@@ -30,22 +30,6 @@ copyfile(ctx.baseFemFile, tmpFem);
 
 opendocument(tmpFem);
 
-%     % ==== 统一放粗：设计域网格线段/弧段 ====
-% groupGrid = 3;
-% hseg      = 8;     % mm
-% maxsegdeg = 15;    % deg
-% 
-% mi_clearselected();
-% mi_selectgroup(groupGrid);
-% 
-% % 线段：elementsize=hseg, automesh=0
-% mi_setsegmentprop('', hseg, 0, 0, groupGrid);
-% 
-% % 圆弧：maxsegdeg 控制圆弧离散；elementsize 控制弧段网格
-% mi_setarcsegmentprop(maxsegdeg, hseg, 0, groupGrid);
-% 
-% mi_clearselected();
-
 
     % （如果模板里还有旧的设计块，保险起见先删）
     mi_selectgroup(groupId);
@@ -55,31 +39,6 @@ opendocument(tmpFem);
     femm_apply_design_bits_rep6_inset(bits, domain,ctx, ctx.phase_id_sector, ctx.mats, ctx.circNames, ...
                              ctx.groupId_core, ctx.groupId_ring,31, turns_per_cell);
     
-
-        % ----------设置三相电流（示例：单工况） ----------
-    % % 这里可以把电角度当成一个参数，也可以固定在某个工况
-    % theta_e = 0;                         % 电角（自己以后可以扫一圈）
-    % 
-    % Ipk = 10;                            % 相电流峰值（示意）
-    % Ia  = Ipk * sin(theta_e);
-    % Ib  = Ipk * sin(theta_e - 2*pi/3);
-    % Ic  = Ipk * sin(theta_e - 4*pi/3);
-    % 
-    % % 先删旧的 circprop 再加（视模板情况而定）
-    % % 这里假定 baseFemFile 里已经定义好了 A+/A-/B+/B-/C+/C- 的 circprop 名字，
-    % % 只需要更新电流值：
-    % mi_modifycircprop('A+', 1, Ia);
-    % mi_modifycircprop('A-', 1, -Ia);
-    % mi_modifycircprop('B+', 1, Ib);
-    % mi_modifycircprop('B-', 1, -Ib);
-    % mi_modifycircprop('C+', 1, Ic);
-    % mi_modifycircprop('C-', 1, -Ic);
-
-    % 视情况：是否要重新划分网格参数
-    % mi_setgrid, mi_smartmesh(0) 等，按你原来的脚本来
-
-    % --- 每次评估保存 ---
-% mi_saveas('test.fem');
     % ---------- 3. 运行一次"转矩扫描" ----------
 
     [T_avg, T_ripple] = scantorque(3.5);
@@ -94,7 +53,22 @@ opendocument(tmpFem);
         penalty = 0;
     end
 
-    J = J_ripple + penalty;
+    J_em = J_ripple + penalty;
+
+    % ===== 新增：浮铁/浮铜检测 + sigmoid 惩罚 =====
+
+    % 1) 检测悬浮铁/铜数量（这两个函数你已经验证可用）
+    fe = detect_floating_iron(bits, ctx.cfg, ctx.ironCode, false);
+    cu = detect_floating_copper_small_islands(bits, ctx.cfg, ctx.cuCode, false,ctx.Amin);
+
+    nFloatFe = fe.nFloat;
+    nFloatCu = cu.nFloat;
+
+    % 3) sigmoid 惩罚（方案A：count-based）
+    pFe = ctx.penFloating.wFe * (1 / (1 + exp(-ctx.penFloating.kFe *  (double(nFloatFe) - 0.5))));
+    pCu = ctx.penFloating.wCu * (1 / (1 + exp(-ctx.penFloating.kCu * (double(nFloatCu) - 0.5))));
+
+J = J_em + pFe + pCu;
 
     % ---------- 5. 可以关闭 FEMM 窗口（视情况而定） ----------
     % closefemm;   % 如果你希望每次都关掉的话

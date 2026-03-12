@@ -1,7 +1,7 @@
 [Format]      =  4.0
 [Frequency]   =  0
 [Precision]   =  1e-008
-[MinAngle]    =  25
+[MinAngle]    =  15
 [DoSmartMesh] =  1
 [Depth]       =  36
 [LengthUnits] =  millimeters
@@ -26,7 +26,7 @@
     <c1i> = 0
     <Mu_ssd> = 0
     <Sigma_ssd> = 0
-    <innerangle> = 15
+    <innerangle> = 90
     <outerangle> = 0
   <EndBdry>
   <BeginBdry>
@@ -491,8 +491,8 @@
 [CircuitProps]  = 3
   <BeginCircuit>
     <CircuitName> = "A"
-    <TotalAmps_re> = -3.0310889132455348
-    <TotalAmps_im> = -0
+    <TotalAmps_re> = 1.0715659492539341e-015
+    <TotalAmps_im> = 0
     <CircuitType> = 1
   <EndCircuit>
   <BeginCircuit>
@@ -503,8 +503,8 @@
   <EndCircuit>
   <BeginCircuit>
     <CircuitName> = "C"
-    <TotalAmps_re> = 2.1431318985078681e-016
-    <TotalAmps_im> = 0
+    <TotalAmps_re> = -3.0310889132455352
+    <TotalAmps_im> = -0
     <CircuitType> = 1
   <EndCircuit>
 [NumPoints] = 161
@@ -833,7 +833,7 @@
 136	113	-1	0	48	1
 160	137	-1	0	48	1
 [NumArcSegments] = 9
-0	1	90	5	0	0	2	1
+0	1	90	5	0	0	2	1.1000000000000001
 2	3	90	5	0	0	2	5
 4	21	26.725955456395297	6	0	0	0	6
 13	38	26.725955456395297	5	0	0	2	5

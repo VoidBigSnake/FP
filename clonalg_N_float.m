@@ -76,18 +76,35 @@ ctx.ironCode = 1;
 ctx.cuCode   = 2;
 
 % 你的拓扑是扇区重复的，所以建议 θ 方向周期连通
-ctx.thetaPeriodic = true;
+ctx.thetaPeriodic = false;
+ctx.Amin = 4;
+% ===== penalty config for floating islands (scheme A: count-based sigmoid) =====
+ctx.penFloating = struct();
+
+ctx.penFloating.enable = true;
+
+% sigmoid: p = w * sigmoid(k*(nFloat-0.5))
+ctx.penFloating.kFe = 50;
+ctx.penFloating.wFe = 0.10;   % 注意：你的J_em≈0.08，wFe建议>=0.08量级
+ctx.penFloating.kCu = 30;
+ctx.penFloating.wCu = 0.05;
+
+ctx.fastReject.enable = true;
+ctx.fastReject.AminCu = 4;     % 面积阈值（按你的定义）
+ctx.fastReject.badJ   = 1e6;   % 直接淘汰值（要明显比正常J大）
+ctx.fastReject.wCu    = 50;    % 可选：按数量加一点"更差"
+ctx.fastReject.wFe    = 50;
 %%
 % bits_test = randi([0,1], 1, domain.Nd);
 % J = eval_design_femm(bits_test, ctx);
 
-%%
+%% 制作参考模型的seed
 
 % refFemFile = 'strukturFemm.fem';
 %
 % seed_bits = seed_from_reference_model(ctx, refFemFile);
 %
-% save('seed_bits_fine_groupB_5gen.mat', 'seed_bits', 'cfg');
+% save('seed_bits_fine.mat', 'seed_bits', 'cfg');
 %%
 % dump_pv(39, 2.7);   % 铜区点
 % dump_pv(32, 2.6);   % 铁区点
@@ -101,45 +118,67 @@ ctx.thetaPeriodic = true;
 % seed_bits = S.seed_bits;
 
 %% 使用已经优化过的参考模型
-S = load('seed_bits_fine.mat', 'seed_bits', 'cfg');
-assert(numel(S.seed_bits) == ctx.domain.Nd, 'seed_bits length mismatch: cfg changed?');
-seed_bits = S.seed_bits;
+S = load(['best_result_0305_groupF_900gen.mat'], 'best_bits', 'cfg');
+assert(numel(S.best_bits) == ctx.domain.Nd, 'seed_bits length mismatch: cfg changed?');
+seed_bits = S.best_bits;
 %%
 rng('shuffle') %default时会输出一样的结果
-rng0 = rng;
 
-N    = 4;                  % Population size
-Ab = randi([0,2], N, Nd);   % 每格一个trit         % Antibody population
+N    = 10;                  % Population size
 
-gen  = 3;                   % Number of generations
+gen  = 100;                   % Number of generations
 % pm_start = 0.15;   % 原来的 pm
 % pm_end   = 0.03;   % 后期别太小，0.03~0.08 都行
 %
 % alpha = (it-1)/(gen-1);          % 0 -> 1
 % pm_t  = pm_start + (pm_end - pm_start)*alpha;                 % Mutation probability
-d    = 0.25;                  % Population to suffer random reshuffle %保证N*d>1
-beta = 0.5;                  % Proportion of clones %保
+d    = 0.2;                  % Population to suffer random reshuffle %保证N*d>1
+beta = 0.4;                  % Proportion of clones %保
 %
 % 证N*beta>1 否则不足一个克隆，会报错
 
 % 1) 手工种子（你来定义 seed_bits）
+
+Ab = randi([0,2], N, Nd);     % 先全随机，防止漏填
+
 Ab(1,:) = seed_bits;
 
-nSeedMut = min(max(2, round(0.8*N)), N-1);  % 80% 都围绕 seed
-pm0 = 0.05;                                  % seed 扰动率（0.03~0.1 调）
-for i = 2:(nSeedMut)
-    Ab(i,:) = mutate_trit(seed_bits, pm0);
-    Ab(i,:) = remove_floating_iron(Ab(i,:), ctx.cfg, ctx.ironCode, ctx.airCode, ctx.thetaPeriodic);
-end
-% Ab(N,:) = randi([0,2], 1, Nd);
-Ab(N,:) = mutate_trit(seed_bits, 0.2);   % 或 0.30
+n_near = round(0.6*(N-1));    % 近邻（小扰动）
+n_mid  = round(0.2*(N-1));    % 中扰动
+% 剩下的自动当 random
 
-Ab(N,:) = remove_floating_iron(Ab(N,:), ctx.cfg, ctx.ironCode, ctx.airCode, ctx.thetaPeriodic);
+pm_near = 0.05;              % 0.03~0.08
+pm_mid  = 0.12;              % 0.10~0.18
+pm_far  = 0.25;              % 可选：最远（强扰动）
+
+idx = 2;
+
+% 近邻
+for k = 1:n_near
+    Ab(idx,:) = mutate_trit(seed_bits, pm_near);
+    idx = idx + 1;
+end
+
+% 中扰动
+for k = 1:n_mid
+    Ab(idx,:) = mutate_trit(seed_bits, pm_mid);
+    idx = idx + 1;
+end
+
+% 可选：塞一个强扰动（保证有"远跳"）
+if idx <= N
+    Ab(idx,:) = mutate_trit(seed_bits, pm_far);
+end
+
+% 剩下 idx+1..N 的保持 randi 随机（但也建议清理一下）
+for i = (idx+1):N
+
+end
 
 % Function to optimization
 p = gcp('nocreate');
 if ~isempty(p), delete(p); end
-parpool('local', min(N, feature('numcores')));
+parpool('local', N);
 
 W = parallel.pool.Constant(@() femm_worker_init(ctx), @(S) femm_worker_cleanup(S));
 
@@ -179,20 +218,32 @@ fbest = 0; % Global f best (minimum)
 % 预分配
 J_hist      = nan(gen,1);        % 每代最优 J
 best_bits_hist = zeros(gen, Lbit);% 可选：记录每代的最优基因串
-rng_hist(gen) = rng;   % 预分配
+
 % % 先评估初始种群
 % fit = zeros(N,1);
 % for i = 1:N
 %     fit(i) = f(Ab(i,:));
 % end
+
 %% 保存过程数据
 Ab_hist  = zeros(gen, N, Lbit, 'uint8');  % 每代的种群基因
 ind_hist = zeros(gen, N, 'uint16');       % 排名索引（N通常<=65535）
 J_hist_all = zeros(gen, N);               % 每代所有个体的J（可选）
 
+% ===== 保存悬浮岛统计（每代×每个体）=====
+nFloatFe_hist = zeros(gen, N, 'uint16');
+nFloatCu_hist = zeros(gen, N, 'uint16');
+
+ratioFe_hist  = zeros(gen, N, 'single');   % 可选：比例更方便画图
+ratioCu_hist  = zeros(gen, N, 'single');
+
+nCompCu_hist  = zeros(gen, N, 'uint16');   % 可选：铜连通块数量（调试/分析）
+
 %% --------- 迭代 ----------
 globalBestJ    = inf;
 globalBestBits = Ab(1,:);
+
+Jcache = containers.Map('KeyType','char','ValueType','double');
 
 for it = 1:gen
     % 1) 评估当前种群
@@ -204,15 +255,29 @@ for it = 1:gen
     p = gcp();
     F = parallel.FevalFuture.empty(N,0);
     for i = 1:N
-        Ab(i,:) = remove_floating_iron(Ab(i,:), ctx.cfg, ctx.ironCode, ctx.airCode, ctx.thetaPeriodic);
-        F(i) = parfeval(p, f, 1, Ab(i,:));
-    end
+        bits = Ab(i,:);
 
-    J = zeros(N,1);
-    for k = 1:N
-        [idx, val] = fetchNext(F);
-        J(idx) = val;
+        % ---- 悬浮岛检测（不修改 bits）----
+        fe = detect_floating_iron(bits, ctx.cfg, ctx.ironCode, ctx.thetaPeriodic);
+        cu = detect_floating_copper_small_islands(bits, ctx.cfg, ctx.cuCode, ctx.thetaPeriodic,ctx.Amin);
+
+        nFloatFe_hist(it,i) = uint16(fe.nFloat);
+        nFloatCu_hist(it,i) = uint16(cu.nFloat);
+
+        ratioFe_hist(it,i)  = single(fe.ratio);
+        ratioCu_hist(it,i)  = single(cu.ratio);
+
+        nCompCu_hist(it,i)  = uint16(cu.nComp);
+
+        % ---- 再去 FEMM 评估 ----
+        %F(i) = parfeval(p, f, 1, bits);
     end
+        [J, Jcache] = eval_bits_batch_cached(Ab, p, f, Jcache);
+    % J = zeros(N,1);
+    % for k = 1:N
+    %     [idx, val] = fetchNext(F);
+    %     J(idx) = val;
+    % end
 
     % 2) 排序（越小越好）
     [J_sorted, ind] = sort(J);
@@ -221,6 +286,12 @@ for it = 1:gen
     ind_hist(it,:)  = uint16(ind);
     J_hist_all(it,:)= J(:).';
     rng_hist(it) = rng;
+
+    nFloatFe_sorted = nFloatFe_hist(it, ind);
+    nFloatCu_sorted = nFloatCu_hist(it, ind);
+
+    ratioFe_sorted  = ratioFe_hist(it, ind);
+    ratioCu_sorted  = ratioCu_hist(it, ind);
     %%
     bestJ = J_sorted(1);
     best_bits_hist(it,:) = Ab(ind(1),:);   % <--- 记录该代最优设计
@@ -241,37 +312,47 @@ for it = 1:gen
     % 3) 按排名克隆
     % 每个个体克隆 cs(i) 个
     % 3) 按排名克隆（让好的个体多克隆）
-    cs_max = round(beta * N);  % 自己调, 比如 N=6,beta=0.5 -> cs_max≈5
+    ns = max(0, N-2);   % 只克隆前 N-2 个父代
+    cs_max = beta * N;  % 最大复制个数
     cs_min = 1;
 
-    Nsel=N-1;
-    rank = 1:Nsel;  % rank=1 最优
-    cs = round( cs_max - (cs_max-cs_min) * (rank-1)/(Nsel-1) );
-    cs(cs < cs_min) = cs_min;
+    cs = zeros(1, N);   % 先全置0（后两个默认不克隆）
+
+    if ns > 0
+        rank = 1:ns;  % 只对前 ns 个(排名更好者)分配克隆数
+        cs_sel = round( cs_max - (cs_max-cs_min) * (rank-1)/max(1,ns-1) );
+        cs_sel(cs_sel < cs_min) = cs_min;
+        cs(1:ns) = cs_sel;
+    end
 
     pcs = cumsum(cs);
-    T   = zeros(pcs(end), Lbit);
+    T   = zeros(pcs(end), Lbit);  % 克隆池总大小 = sum(cs)
 
     % ===== 超变异率：按父代排名（簇编号）递增 =====
     pm_min = 0.03;
     pm_max = 0.20;
     gamma  = 2;
 
-    rank = 1:Nsel;  % 1 最优 -> N 最差
-    pm_rank = pm_min + (pm_max - pm_min) * ((rank-1)/(N-1)).^gamma;  % 1×N
+    pm_rank = zeros(1, N);  % 先给N个占位，后两个用不到
+
+    if ns > 0
+        rank = 1:ns;
+        pm_rank(1:ns) = pm_min + (pm_max - pm_min) * ((rank-1)/max(1,ns-1)).^gamma;
+    end
 
     start_idx = 1;
-    for i = 1:Nsel
+    for i = 1:ns
         stop_idx = pcs(i);
         T(start_idx:stop_idx, :) = repmat( Ab(ind(i),:), cs(i), 1 );
         start_idx = stop_idx + 1;
     end
 
+
     % ===== 第4步：按簇超变异（每个父代一个 pm）=====
     Mmut = false(size(T));   % 变异掩膜（与 T 同尺寸）
     start_idx = 1;
 
-    for ii = 1:Nsel
+    for ii = 1:ns
         stop_idx = pcs(ii);
 
         % 这一簇的变异概率
@@ -291,28 +372,20 @@ for it = 1:gen
         T(idx) = mod(old + delta, 3);
     end
 
-    for m = 1:size(T,1)%清理悬浮铁
-        T(m,:) = remove_floating_iron(T(m,:), ctx.cfg, ctx.ironCode, ctx.airCode, ctx.thetaPeriodic);
-    end
-
     % 5) 评估克隆池
-    % J_T = zeros(size(T,1),1);
-    % p = gcp();
-    % parfor (i = 1:size(T,1), p.NumWorkers)
-    %     J_T(i) = f(T(i,:));
-    % end
-    % p = gcp();
-    M = size(T,1);
-    F = parallel.FevalFuture.empty(M,0);
-    for i = 1:M
-        F(i) = parfeval(p, f, 1, T(i,:));
-    end
 
-    J_T = zeros(M,1);
-    for k = 1:M
-        [idx, val] = fetchNext(F);
-        J_T(idx) = val;
-    end
+    % M = size(T,1);
+    % F = parallel.FevalFuture.empty(M,0);
+    % for i = 1:M
+    %     F(i) = parfeval(p, f, 1, T(i,:));
+    % end
+    % 
+    % J_T = zeros(M,1);
+    % for k = 1:M
+    %     [idx, val] = fetchNext(F);
+    %     J_T(idx) = val;
+    % end
+            [J_T, Jcache] = eval_bits_batch_cached(T, p, f, Jcache);
 
     [minCloneJ, idxMinClone] = min(J_T);
     if minCloneJ < globalBestJ
@@ -322,10 +395,8 @@ for it = 1:gen
 
     % 6) 每个簇：父代 vs 最优克隆，择优进入 newAb
     newAb = zeros(size(Ab));
-    % 先把最差那个直接保留（不参与克隆竞争）
-    newAb(N,:) = Ab(ind(N),:);
     start_idx = 1;
-    for i = 1:Nsel
+    for i = 1:ns
         stop_idx = pcs(i);
 
         parentBits = Ab(ind(i),:);   % 排名第 i 的父代
@@ -344,6 +415,11 @@ for it = 1:gen
         start_idx = stop_idx + 1;
     end
 
+    % (B) 最后两个（i = ns+1:N）：不参与克隆，直接继承父代（按排名）
+    for i = ns+1:N
+        newAb(i,:) = Ab(ind(i),:);
+    end
+
     % 7) Repertoire shift：随机重置一些个体（但不动精英）
     nedit = max(1, round(d * N));
 
@@ -359,18 +435,16 @@ for it = 1:gen
                 % 50%：真随机移民（全局跳）
                 newAb(rp(kk),:) = randi([0,2], 1, Lbit);
             end
-            newAb(rp(kk),:) = remove_floating_iron(newAb(rp(kk),:), ctx.cfg, ctx.ironCode, ctx.airCode, ctx.thetaPeriodic);
         end
     end
 
     % ====== 精英强行塞回（保证不丢）======
     newAb(1,:) = globalBestBits;
-    newAb(1,:) = remove_floating_iron(globalBestBits, ctx.cfg, ctx.ironCode, ctx.airCode, ctx.thetaPeriodic);
 
     % 更新种群
     Ab = newAb;
 end
-
+%%
 % --------- 画收敛曲线 ----------
 figure;
 semilogy(J_hist,'-o');
@@ -379,6 +453,7 @@ xlabel('Generation');
 ylabel('Best J (log scale)');
 title('Clonal Selection on Topology Bits');
 
+%%
 [bestOverall, genIdx] = min(J_hist);
 fprintf('\nBest J found = %.4f at generation %d\n', bestOverall, genIdx);
 
@@ -387,18 +462,21 @@ best_bits = best_bits_hist(genIdx,:);   % 这一代的基因就是全局最优
 % best_bits = remove_floating_iron(best_bits, ctx.cfg, ctx.ironCode, ctx.airCode, ctx.thetaPeriodic);
 
 %% ---------- 保存最优结果（bits + FEMM 文件） ----------
-outDir = 'C:\Users\Administrator\Desktop\FP\IA_test_group4';
+outDir = 'C:\Users\Alexander\Desktop\FP\IA_test_Float';
 if ~exist(outDir,'dir'), mkdir(outDir); end
 
 tag = datestr(now,'yyyymmdd_HHMMSS');
-bestFile  = fullfile(outDir, ['best_result_' tag '.mat']);
-
 save(fullfile(outDir, ['best_result_' tag '.mat']), ...
-    'best_bits','bestOverall','genIdx','J_hist','best_bits_hist','cfg','ctx','rng0','rng_hist');
+    'best_bits','bestOverall','genIdx','J_hist','best_bits_hist','cfg','ctx');
+
+bestFemPath = fullfile(outDir, sprintf('best_J%.6g_%s.fem', bestOverall, tag));
+bestPngPath = fullfile(outDir, sprintf('best_J%.6g_%s.png', bestOverall, tag));
+
 %% 保存过程数据
 save(fullfile(outDir, ['trace_all_' tag '.mat']), ...
-     'Ab_hist','ind_hist','J_hist_all','J_hist','best_bits_hist', ...
-     'cfg','ctx','N','gen','beta','d','-v7.3');
+    'Ab_hist','ind_hist','J_hist_all','J_hist','best_bits_hist', ...
+    'nFloatFe_hist','nFloatCu_hist','ratioFe_hist','ratioCu_hist','nCompCu_hist', ...
+    'cfg','ctx','N','gen','beta','d','-v7.3');
 %%
 traceFile = fullfile(outDir, ['trace_all_'  tag '.mat']);
 
@@ -415,12 +493,10 @@ end
 save(traceFile, 'Ab_rank_hist', '-append');
 
 %%
-bestFemPath = fullfile(outDir, sprintf('best_J%.6g_%s.fem', bestOverall, tag));
-bestPngPath = fullfile(outDir, sprintf('best_J%.6g_%s.png', bestOverall, tag));
 
 save(fullfile(outDir, 'best_bits_coarse.mat'), 'best_bits', 'cfg', 'ctx', 'bestOverall'); %%保数数据
 
-openfemm;
+openfemm(1);
 opendocument(ctx.baseFemFile);   % 你自己的模板 fem 路径（重要！）
 
 % 把最优基因写入当前 fem
@@ -435,15 +511,21 @@ mi_saveas(bestFemPath);
 mi_analyze;
 mi_loadsolution;
 mo_savebitmap(bestPngPath);
-
-closefemm;
-%% 临时代码
-% S = load('seed_bits_fine.mat', 'seed_bits', 'cfg');
+% %% 临时代码
+% S = load('best_result_0204_groupN_100gen.mat.mat', 'seed_bits', 'cfg');
 % seed_bits = S.seed_bits;
 % save_best_design_femm(seed_bits, ctx, 'seed_bits_fine', 'seed_bits_fine'); %%保存结构图
+% 
+% %% 临时代码2
+% 
+% refFemFile = 'model.fem';
+% 
+% seed_bits = seed_from_reference_model(ctx, refFemFile);
+% 
+% save('seed_bits_filter.mat', 'seed_bits', 'cfg');
 %%
-fprintf('Saved best FEMM model to:\n  %s\n', bestFemPath);
-fprintf('If analyzed, solution .ans will be next to it with same basename.\n');
+% fprintf('Saved best FEMM model to:\n  %s\n', bestFemPath);
+% fprintf('If analyzed, solution .ans will be next to it with same basename.\n');
 % % Minimization problem
 % x  = valx(1);
 % y  = valy(1);
@@ -549,84 +631,11 @@ function J = f_wrapper(bits, ctx, W)
 t = getCurrentTask();
 wid = -1; if ~isempty(t), wid = t.ID; end
 fprintf('[%s] worker %d START\n', datestr(now,'HH:MM:SS.FFF'), wid);
-% 1) 悬浮铁修复（只处理铁，铜先不管）
-bits = remove_floating_iron(bits, ctx.cfg, ctx.ironCode, ctx.airCode, ctx.thetaPeriodic);
-
-% 2) FEMM 评估
+% FEMM 评估
 S = W.Value;
-[J, ~, ~] = eval_design_femm_worker(bits, ctx, S);
+[J, ~, ~] = eval_design_femm_float(bits, ctx, S);
 
 fprintf('[%s] worker %d END\n', datestr(now,'HH:MM:SS.FFF'), wid);
-end
-
-function bits2 = remove_floating_iron(bits, cfg, ironCode, airCode, thetaPeriodic)
-% 只保留与"外侧边界（nr行）"连通的铁，其余铁 -> air
-% thetaPeriodic=true 时，theta方向左右边界相连（适用于扇区重复/整圆周期）
-
-if nargin < 5, thetaPeriodic = false; end
-
-nr = cfg.nr; nt = cfg.nt;
-% bits 的线性顺序是按 (it, ir) 走的，需先按 [nt,nr] reshape
-% 再转置成 [nr,nt] 方便用 (r,c) = (ir,it) 访问
-B  = reshape(bits, [nt, nr]).';
-isIron = (B == ironCode);
-
-% 锚点：设计域最外一圈（靠固定背轭）
-support = false(nr, nt);
-support(nr, :) = true;
-
-seeds = find(isIron & support);
-
-% 若没有任何锚点铁：
-% - 如果内部根本没铁：直接返回
-% - 如果内部有铁：说明全部铁都不与背轭接触 => 全部删掉
-if isempty(seeds)
-    if any(isIron(:))
-        B(isIron) = airCode;
-    end
-    bits2 = B(:).';
-    return;
-end
-
-% BFS
-keep = false(nr, nt);
-q = seeds(:);
-keep(q) = true;
-
-while ~isempty(q)
-    idx = q(1); q(1) = [];
-    [r,c] = ind2sub([nr,nt], idx);
-
-    % 4邻接
-    nb = [r-1 c; r+1 c; r c-1; r c+1];
-
-    for k = 1:4
-        rr = nb(k,1); cc = nb(k,2);
-
-        % theta周期：左右边界 wrap
-        if thetaPeriodic
-            if cc < 1,  cc = nt; end
-            if cc > nt, cc = 1;  end
-        end
-
-        % 非周期时，越界直接跳过
-        if rr<1 || rr>nr || cc<1 || cc>nt
-            continue;
-        end
-
-        if isIron(rr,cc) && ~keep(rr,cc)
-            keep(rr,cc) = true;
-            q(end+1,1) = sub2ind([nr,nt], rr, cc);
-        end
-    end
-end
-
-% 删除悬浮铁
-floatingIron = isIron & ~keep;
-B(floatingIron) = airCode;
-
-% 还原成原本的线性顺序 (it, ir)
-bits2 = reshape(B.', 1, []);
 end
 
 
@@ -824,7 +833,7 @@ for k = 1:Nd
 end
 
 % 可选：清理浮铁（只保留与外圈连通的铁）
-% seed_bits = remove_floating_iron(seed_bits, ctx.cfg, ctx.ironCode, ctx.airCode, ctx.thetaPeriodic);
+seed_bits = remove_floating_iron(seed_bits, ctx.cfg, ctx.ironCode, ctx.airCode, ctx.thetaPeriodic);
 
 try, mo_close; end
 try, mi_close; end
@@ -838,4 +847,195 @@ fprintf('pv length = %d\n', numel(pv));
 for i = 1:numel(pv)
     fprintf('%2d : %.12g\n', i, pv(i));
 end
+end
+
+
+function out = detect_floating_iron(bits, cfg, ironCode, thetaPeriodic)
+% out: struct with fields
+%   nIron, nFloat, ratio, keepMask(optional)
+
+if nargin < 4, thetaPeriodic = false; end
+nr = cfg.nr; nt = cfg.nt;
+
+B = reshape(bits, [nt, nr]).';        % [nr,nt]
+isIron = (B == ironCode);
+
+out.nIron = nnz(isIron);
+if out.nIron == 0
+    out.nFloat = 0;
+    out.ratio  = 0;
+    out.keepMask = false(nr,nt);
+    return;
+end
+
+% anchor: outer ring (back-yoke side)
+support = false(nr, nt);
+support(nr,:) = true;
+
+seeds = find(isIron & support);
+
+% if no anchored iron, then all iron is floating
+if isempty(seeds)
+    out.nFloat = out.nIron;
+    out.ratio  = 1;
+    out.keepMask = false(nr,nt);
+    return;
+end
+
+% BFS from anchored iron
+keep = false(nr, nt);
+q = seeds(:);
+keep(q) = true;
+
+while ~isempty(q)
+    idx = q(1); q(1) = [];
+    [r,c] = ind2sub([nr,nt], idx);
+
+    nb = [r-1 c; r+1 c; r c-1; r c+1];
+    for k = 1:4
+        rr = nb(k,1); cc = nb(k,2);
+
+        if thetaPeriodic
+            if cc < 1,  cc = nt; end
+            if cc > nt, cc = 1;  end
+        end
+
+        if rr<1 || rr>nr || cc<1 || cc>nt, continue; end
+
+        if isIron(rr,cc) && ~keep(rr,cc)
+            keep(rr,cc) = true;
+            q(end+1,1) = sub2ind([nr,nt], rr, cc);
+        end
+    end
+end
+
+floating = isIron & ~keep;
+
+out.nFloat = nnz(floating);
+out.ratio  = out.nFloat / (out.nIron + eps);
+out.keepMask = keep;   % 可选：想省内存可删掉这个字段
+end
+
+function out = detect_floating_copper_largest(bits, cfg, cuCode, thetaPeriodic)
+% out fields:
+%   nCu, nFloat, ratio, nComp, compSizes
+
+if nargin < 4, thetaPeriodic = false; end
+nr = cfg.nr; nt = cfg.nt;
+
+B = reshape(bits, [nt, nr]).';        % [nr,nt]
+isCu = (B == cuCode);
+
+out.nCu = nnz(isCu);
+if out.nCu == 0
+    out.nFloat = 0;
+    out.ratio  = 0;
+    out.nComp  = 0;
+    out.compSizes = [];
+    return;
+end
+
+visited = false(nr,nt);
+labels  = zeros(nr,nt,'uint16');
+compSizes = zeros(0,1);
+cid = uint16(0);
+
+for r0 = 1:nr
+    for c0 = 1:nt
+        if ~isCu(r0,c0) || visited(r0,c0), continue; end
+
+        cid = cid + 1;
+        q = sub2ind([nr,nt], r0, c0);
+        visited(r0,c0) = true;
+        labels(r0,c0) = cid;
+        cnt = 0;
+
+        while ~isempty(q)
+            idx = q(1); q(1) = [];
+            [r,c] = ind2sub([nr,nt], idx);
+            cnt = cnt + 1;
+
+            nb = [r-1 c; r+1 c; r c-1; r c+1];
+            for k = 1:4
+                rr = nb(k,1); cc = nb(k,2);
+
+                if thetaPeriodic
+                    if cc < 1,  cc = nt; end
+                    if cc > nt, cc = 1;  end
+                end
+
+                if rr<1 || rr>nr || cc<1 || cc>nt, continue; end
+
+                if isCu(rr,cc) && ~visited(rr,cc)
+                    visited(rr,cc) = true;
+                    labels(rr,cc)  = cid;
+                    q(end+1,1) = sub2ind([nr,nt], rr, cc);
+                end
+            end
+        end
+
+        compSizes(double(cid),1) = cnt; %#ok<AGROW>
+    end
+end
+
+out.nComp = numel(compSizes);
+out.compSizes = compSizes;
+
+% keep only the largest component
+[~, imax] = max(compSizes);
+mainMask = (labels == uint16(imax));
+floatMask = isCu & ~mainMask;
+
+out.nFloat = nnz(floatMask);
+out.ratio  = out.nFloat / (out.nCu + eps);
+end
+
+function key = bits_key(bits01_2)
+% bits01_2: 1×Lbit, uint8/double 都行
+    b = uint8(bits01_2);
+    key = char(b + uint8('0'));   % 0/1/2 -> '0''1''2'
+end
+
+function [J, cache] = eval_bits_batch_cached(X, p, f, cache)
+% X: K×Lbit (double/uint8)
+% p: parallel pool
+% f: function handle, f(bits)->J
+% cache: containers.Map  key(char) -> double(J)
+
+    X8 = uint8(X);
+
+    % --- 1) 批内去重 ---
+    [U, ~, ic] = unique(X8, 'rows', 'stable');   % U: Ku×Lbit
+    Ku = size(U,1);
+
+    Ju = zeros(Ku,1);
+
+    % --- 2) 先查缓存，没命中的才提交 ---
+    F = parallel.FevalFuture.empty(0,1);
+    fut2u = zeros(0,1);
+    futKey = cell(0,1);
+
+    for u = 1:Ku
+        key = char(U(u,:) + uint8('0'));
+
+        if isKey(cache, key)
+            Ju(u) = cache(key);
+        else
+            % 注意：传给 f 的类型要和你 f 期望一致（你现在 bits 是 double 也行）
+            F(end+1,1) = parfeval(p, f, 1, double(U(u,:)));
+            fut2u(end+1,1) = u;
+            futKey{end+1,1} = key;
+        end
+    end
+
+    % --- 3) 回收并写回缓存 ---
+    for k = 1:numel(F)
+        [idx, val] = fetchNext(F);
+        u = fut2u(idx);
+        Ju(u) = val;
+        cache(futKey{idx}) = val;
+    end
+
+    % --- 4) 映射回原始顺序 ---
+    J = Ju(ic);
 end

@@ -38,4 +38,7 @@ mi_clearselected();
 mi_selectgroup(groupGrid);
 mi_setarcsegmentprop(maxsegdeg, '', 0, groupGrid);
 mi_clearselected();
+
+mi_clearselected();
+mi_saveas(S.baseFemLocal);
 end

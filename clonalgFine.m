@@ -398,7 +398,9 @@ function bits2 = remove_floating_iron(bits, cfg, ironCode, airCode, thetaPeriodi
 if nargin < 5, thetaPeriodic = false; end
 
 nr = cfg.nr; nt = cfg.nt;
-B  = reshape(bits, [nr, nt]);
+% bits 的线性顺序是按 (it, ir) 走的，需先按 [nt,nr] reshape
+% 再转置成 [nr,nt] 方便用 (r,c) = (ir,it) 访问
+B  = reshape(bits, [nt, nr]).';
 isIron = (B == ironCode);
 
 % 锚点：设计域最外一圈（靠固定背轭）
@@ -455,7 +457,8 @@ end
 floatingIron = isIron & ~keep;
 B(floatingIron) = airCode;
 
-bits2 = B(:).';
+% 还原成原本的线性顺序 (it, ir)
+bits2 = reshape(B.', 1, []);
 end
 
 

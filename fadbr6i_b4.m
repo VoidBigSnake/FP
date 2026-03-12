@@ -1,6 +1,6 @@
 function femm_apply_design_bits_rep6_inset( ...
     gene, domain, ctx, phase_id_sector, mats, circNames, ...
-    groupIdCore, groupIdRing, groupIdCuGeom, turns_per_circ)
+    groupIdCore, groupIdRing, groupIdCuGeom, turns_per_circ)%在b3的基础上删除了多余的内部节点
 
 Nd = domain.Nd;
 

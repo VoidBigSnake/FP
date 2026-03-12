@@ -155,23 +155,23 @@ ctx.penFloating.wCu = 0.05;
 
 
 %% ---------- 1. 用一条 bits 测试 eval_design_femm ----------
-Nd   = domain.Nd;
-Lbit = Nd;
-
-S = load('best_result_0204_groupN_100gen.mat', 'best_bits', 'cfg');
-assert(numel(S.best_bits) == ctx.domain.Nd, 'seed_bits length mismatch: cfg changed?');
-seed_bits = S.best_bits;
-
-fprintf('Before clean: iron=%d, cu=%d, air=%d\n', ...
-    nnz(seed_bits==ctx.ironCode), nnz(seed_bits==ctx.cuCode), nnz(seed_bits==ctx.airCode));
-seed_bits2 = remove_floating_iron(seed_bits, ctx.cfg, ctx.ironCode, ctx.airCode, false);
-fprintf('After  clean: iron=%d, cu=%d, air=%d\n', ...
-    nnz(seed_bits2==ctx.ironCode), nnz(seed_bits2==ctx.cuCode), nnz(seed_bits2==ctx.airCode));
-
-[J, T_avg, T_ripple] = eval_design_femm(seed_bits2, ctx);
-
-fprintf('Test design: J = %.4f, T_avg = %.3f Nm, T_ripple = %.3f Nm\n', ...
-        J, T_avg, T_ripple);
+% Nd   = domain.Nd;
+% Lbit = Nd;
+% 
+% S = load('best_result_0306_groupF_1000gen.mat', 'best_bits', 'cfg');
+% assert(numel(S.best_bits) == ctx.domain.Nd, 'seed_bits length mismatch: cfg changed?');
+% seed_bits = S.best_bits;
+% 
+% fprintf('Before clean: iron=%d, cu=%d, air=%d\n', ...
+%     nnz(seed_bits==ctx.ironCode), nnz(seed_bits==ctx.cuCode), nnz(seed_bits==ctx.airCode));
+% seed_bits2 = remove_floating_iron(seed_bits, ctx.cfg, ctx.ironCode, ctx.airCode, false);
+% fprintf('After  clean: iron=%d, cu=%d, air=%d\n', ...
+%     nnz(seed_bits2==ctx.ironCode), nnz(seed_bits2==ctx.cuCode), nnz(seed_bits2==ctx.airCode));
+% 
+% [J, T_avg, T_ripple] = eval_design_femm(seed_bits2, ctx);
+% 
+% fprintf('Test design: J = %.4f, T_avg = %.3f Nm, T_ripple = %.3f Nm\n', ...
+%         J, T_avg, T_ripple);
 
 %%
 % refFemFile = 'best_J0.080216_20260109_165414.fem';
@@ -185,33 +185,33 @@ fprintf('Test design: J = %.4f, T_avg = %.3f Nm, T_ripple = %.3f Nm\n', ...
 
 %%
 
-% Nd   = domain.Nd;
-% Lbit = Nd;
-% 
-% S = load('seed_bits_filter.mat', 'seed_bits', 'cfg');
-% assert(numel(S.seed_bits) == ctx.domain.Nd, 'seed_bits length mismatch: cfg changed?');
-% seed_bits = S.seed_bits;
-% 
-% fprintf('Before clean: iron=%d, cu=%d, air=%d\n', ...
-%     nnz(seed_bits==ctx.ironCode), nnz(seed_bits==ctx.cuCode), nnz(seed_bits==ctx.airCode));
-% seed_bits = remove_floating_iron(seed_bits, ctx.cfg, ctx.ironCode, ctx.airCode, false);
-% fprintf('After  clean: iron=%d, cu=%d, air=%d\n', ...
-%     nnz(seed_bits==ctx.ironCode), nnz(seed_bits==ctx.cuCode), nnz(seed_bits==ctx.airCode));
-% 
-% fe = detect_floating_iron(seed_bits, ctx.cfg, ctx.ironCode, false);
-% Amin=4;
-% cu = detect_floating_copper_small_islands(seed_bits, ctx.cfg, ctx.cuCode, ctx.thetaPeriodic,Amin);
-% 
-% fprintf('floatFe=%d/%d (%.3f), floatCu=%d/%d (%.3f), nCompCu=%d\n', ...
-%     fe.nFloat, fe.nIron, fe.ratio, cu.nFloat, cu.nCu, cu.ratio, cu.nComp);
-% 
-% A = cu.compSizes(:);
-% fprintf('nCu=%d, sum(compSizes)=%d, maxA=%d\n', cu.nCu, sum(A), max(A));
-% fprintf('nFloat_reported=%d, nFloat_small_check=%d\n', cu.nFloat, sum(A(A < Amin)));
+Nd   = domain.Nd;
+Lbit = Nd;
 
-% [J, T_avg, T_ripple] = eval_design_femm_float_test(seed_bits, ctx);
-% fprintf('Test design: J = %.4f, T_avg = %.3f Nm, T_ripple = %.3f Nm\n', ...
-%         J, T_avg, T_ripple);
+S = load('seed_bits_filter.mat', 'seed_bits', 'cfg');
+assert(numel(S.seed_bits) == ctx.domain.Nd, 'seed_bits length mismatch: cfg changed?');
+seed_bits = S.seed_bits;
+
+fprintf('Before clean: iron=%d, cu=%d, air=%d\n', ...
+    nnz(seed_bits==ctx.ironCode), nnz(seed_bits==ctx.cuCode), nnz(seed_bits==ctx.airCode));
+seed_bits = remove_floating_iron(seed_bits, ctx.cfg, ctx.ironCode, ctx.airCode, false);
+fprintf('After  clean: iron=%d, cu=%d, air=%d\n', ...
+    nnz(seed_bits==ctx.ironCode), nnz(seed_bits==ctx.cuCode), nnz(seed_bits==ctx.airCode));
+
+fe = detect_floating_iron(seed_bits, ctx.cfg, ctx.ironCode, false);
+Amin=4;
+cu = detect_floating_copper_small_islands(seed_bits, ctx.cfg, ctx.cuCode, ctx.thetaPeriodic,Amin);
+
+fprintf('floatFe=%d/%d (%.3f), floatCu=%d/%d (%.3f), nCompCu=%d\n', ...
+    fe.nFloat, fe.nIron, fe.ratio, cu.nFloat, cu.nCu, cu.ratio, cu.nComp);
+
+A = cu.compSizes(:);
+fprintf('nCu=%d, sum(compSizes)=%d, maxA=%d\n', cu.nCu, sum(A), max(A));
+fprintf('nFloat_reported=%d, nFloat_small_check=%d\n', cu.nFloat, sum(A(A < Amin)));
+
+[J, T_avg, T_ripple] = eval_design_femm_float_test(seed_bits, ctx);
+fprintf('Test design: J = %.4f, T_avg = %.3f Nm, T_ripple = %.3f Nm\n', ...
+        J, T_avg, T_ripple);
 %%
 function [theta_deg, T] = scantorque_test(inp)
 

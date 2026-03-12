@@ -56,35 +56,35 @@ end
 
 % 这里我们用 mi_addarc，以 r_edges(ir) 为半径，在相邻两条射线之间画弧
 % ---- 3) 画圆弧线（每条对应一个 r_edge）----
-maxSegDegArc = 15;   % ✅ 优化阶段建议 10~20，想更粗就再加
+maxSegDegArc = 10;   % ✅ 优化阶段建议 10~20，想更粗就再加
 
-for ir = 1:(nr+1)
-    r = r_edges(ir);
-
-    for it = 1:nt
-        th1 = theta_edges(it);
-        th2 = theta_edges(it+1);
-
-        x1 = r * cosd(th1);  y1 = r * sind(th1);
-        x2 = r * cosd(th2);  y2 = r * sind(th2);
-
-        dth = th2 - th1;
-
-        % 先画弧：最后一个参数是 maxsegdeg（别用 1！）
-        mi_addarc(x1, y1, x2, y2, dth, maxSegDegArc);
-
-        % 选中弧段：用弧中点坐标最稳
-        thm = (th1 + th2)/2;
-        xm  = r * cosd(thm);
-        ym  = r * sind(thm);
-        mi_selectarcsegment(xm, ym);
-
-        % setarcsegmentprop(maxsegdeg, boundary, hide, group)
-        mi_setarcsegmentprop(maxSegDegArc, '', 0, groupId);
-
-        mi_clearselected();
-    end
-end
+% for ir = 1:(nr+1)
+%     r = r_edges(ir);
+% 
+%     for it = 1:nt
+%         th1 = theta_edges(it);
+%         th2 = theta_edges(it+1);
+% 
+%         x1 = r * cosd(th1);  y1 = r * sind(th1);
+%         x2 = r * cosd(th2);  y2 = r * sind(th2);
+% 
+%         dth = th2 - th1;
+% 
+%         % 先画弧：最后一个参数是 maxsegdeg（别用 1！）
+%         mi_addarc(x1, y1, x2, y2, dth, maxSegDegArc);
+% 
+%         % 选中弧段：用弧中点坐标最稳
+%         thm = (th1 + th2)/2;
+%         xm  = r * cosd(thm);
+%         ym  = r * sind(thm);
+%         mi_selectarcsegment(xm, ym);
+% 
+%         % setarcsegmentprop(maxsegdeg, boundary, hide, group)
+%         mi_setarcsegmentprop(maxSegDegArc, '', 0, groupId);
+% 
+%         mi_clearselected();
+%     end
+% end
 
 
 end

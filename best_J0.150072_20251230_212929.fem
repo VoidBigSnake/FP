@@ -26,7 +26,7 @@
     <c1i> = 0
     <Mu_ssd> = 0
     <Sigma_ssd> = 0
-    <innerangle> = 15
+    <innerangle> = 0
     <outerangle> = 0
   <EndBdry>
   <BeginBdry>
@@ -443,8 +443,8 @@
 [CircuitProps]  = 6
   <BeginCircuit>
     <CircuitName> = "A+"
-    <TotalAmps_re> = -3.0310889132455348
-    <TotalAmps_im> = -0
+    <TotalAmps_re> = 2.1431318985078681e-016
+    <TotalAmps_im> = 0
     <CircuitType> = 1
   <EndCircuit>
   <BeginCircuit>
@@ -455,14 +455,14 @@
   <EndCircuit>
   <BeginCircuit>
     <CircuitName> = "C+"
-    <TotalAmps_re> = 2.1431318985078681e-016
-    <TotalAmps_im> = 0
+    <TotalAmps_re> = -3.0310889132455348
+    <TotalAmps_im> = -0
     <CircuitType> = 1
   <EndCircuit>
   <BeginCircuit>
     <CircuitName> = "A-"
-    <TotalAmps_re> = 3.0310889132455348
-    <TotalAmps_im> = 0
+    <TotalAmps_re> = -2.1431318985078681e-016
+    <TotalAmps_im> = -0
     <CircuitType> = 1
   <EndCircuit>
   <BeginCircuit>
@@ -473,8 +473,8 @@
   <EndCircuit>
   <BeginCircuit>
     <CircuitName> = "C-"
-    <TotalAmps_re> = -2.1431318985078681e-016
-    <TotalAmps_im> = -0
+    <TotalAmps_re> = 3.0310889132455348
+    <TotalAmps_im> = 0
     <CircuitType> = 1
   <EndCircuit>
 [NumPoints] = 443
