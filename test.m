@@ -158,7 +158,7 @@ ctx.penFloating.wCu = 0.05;
 Nd   = domain.Nd;
 Lbit = Nd;
 
-S = load('best_result_0204_groupN_100gen.mat', 'best_bits', 'cfg');
+S = load('best_result_0306_groupF_1000gen.mat', 'best_bits', 'cfg');
 assert(numel(S.best_bits) == ctx.domain.Nd, 'seed_bits length mismatch: cfg changed?');
 seed_bits = S.best_bits;
 
