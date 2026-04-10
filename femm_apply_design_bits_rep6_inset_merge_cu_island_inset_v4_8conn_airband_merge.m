@@ -1,4 +1,4 @@
-function femm_apply_design_bits_rep6_inset_merge_cu_island_inset_v31_8conn( ...
+function femm_apply_design_bits_rep6_inset_merge_cu_island_inset_v4_8conn_airband_merge( ...
     gene, domain, ctx, phase_id_sector, mats, circNames, ...
     groupIdCore, groupIdRing, groupIdCuGeom, turns_per_circ)
 
@@ -20,12 +20,6 @@ elseif isfield(ctx, 'inset_r_ratio')
     alpha = ctx.inset_r_ratio;
 end
 alpha = max(0, min(alpha, 0.45));
-
-corner_min_ratio = 0.08;
-if isfield(ctx, 'corner_air_min_ratio')
-    corner_min_ratio = ctx.corner_air_min_ratio;
-end
-corner_min_ratio = max(0, min(corner_min_ratio, 0.45));
 
 % ===== 1) 删旧 label =====
 mi_selectgroup(groupIdCore); mi_deleteselected();
@@ -77,34 +71,7 @@ for k = 1:Nd
         is_copper_grid(ir_of_k(k), it_of_k(k)) = true;
     end
 end
-
-% 预计算哪些铜格子需要空气带（边/角暴露）
-has_air_band_cell = false(Nd,1);
-has_side_air_cell = false(Nd,1);
-for k = 1:Nd
-    if mat_code(k) == 2
-        has_air_band_cell(k) = copper_cell_has_air_band(k, nr, nt, ir_of_k, it_of_k, is_copper_grid);
-        has_side_air_cell(k) = copper_cell_has_side_air(k, nr, nt, ir_of_k, it_of_k, is_copper_grid);
-    end
-end
-
-% 空气带并区（默认仅边空气带，避免角空气带并区时引入重复连线）
-merge_corner_air = true;
-if isfield(ctx, 'merge_corner_air_with_side')
-    merge_corner_air = logical(ctx.merge_corner_air_with_side);
-end
-if merge_corner_air
-    merge_air_cell = expand_corner_air_merge_cells(has_air_band_cell, has_side_air_cell, nr, nt, ir_of_k, it_of_k, mat_code);
-else
-    merge_air_cell = has_side_air_cell;
-end
-key_air_band = nan(Nd,1);
-for k = 1:Nd
-    if mat_code(k) == 2 && merge_air_cell(k)
-        key_air_band(k) = 300;
-    end
-end
-keep_air_band_label = keep_one_label_per_region(nr, nt, key_air_band, ir_of_k, it_of_k);
+[copper_island_id, num_copper_islands] = build_copper_island_id_8conn(is_copper_grid);
 
 for s = 1:nSector
     pid = phase_id_sector{s};
@@ -125,10 +92,11 @@ for s = 1:nSector
     % 仅对背景（空气/铁）删内部边；铜区因 key=NaN 不会参与
     delete_internal_boundaries_sector(r_edges, theta_edges, c0, Cs, isMirror, nr, nt, key_bg, ir_of_k, it_of_k);
     remove_isolated_nodes_sector(r_edges, theta_edges, c0, Cs, isMirror, nr, nt, key_bg, ir_of_k, it_of_k);
-
-    % 删除空气带并区内部边界：默认仅边空气带；可通过 ctx.merge_corner_air_with_side 打开角并区。
-    delete_internal_boundaries_sector(r_edges, theta_edges, c0, Cs, isMirror, nr, nt, key_air_band, ir_of_k, it_of_k);
-    remove_isolated_nodes_sector(r_edges, theta_edges, c0, Cs, isMirror, nr, nt, key_air_band, ir_of_k, it_of_k);
+    % 合并空气带：只删除铜岛内侧已有分界线，不新增任何连线
+    delete_internal_boundaries_in_copper_airband_sector( ...
+        r_edges, theta_edges, c0, Cs, isMirror, nr, nt, is_copper_grid, copper_island_id);
+    keep_cu_air_island_label = false(num_copper_islands, 1);
+    reset_cu_geom_edge_cache();
 
     for k = 1:Nd
         code = mat_code(k);
@@ -136,16 +104,19 @@ for s = 1:nSector
         % ===== 背景 label：
         % 非铜格子按并区保留一个；铜格子仅在确有空气带时补空气标签 =====
         if code == 2
-            if (merge_air_cell(k) && keep_air_band_label(k)) || (~merge_air_cell(k) && has_air_band_cell(k))
+            ir = ir_of_k(k); it = it_of_k(k);
+            island_id = copper_island_id(ir, it);
+            if island_id > 0 && (~keep_cu_air_island_label(island_id)) && ...
+                    copper_cell_has_air_band(k, nr, nt, ir_of_k, it_of_k, is_copper_grid)
                 [xAirList, yAirList] = air_band_label_points_for_copper_cell( ...
-                    k, c0, Cs, isMirror, nr, nt, r_edges, theta_edges, alpha, alpha, corner_min_ratio, merge_corner_air, ...
+                    k, c0, Cs, isMirror, nr, nt, r_edges, theta_edges, alpha, alpha, ...
                     ir_of_k, it_of_k, is_copper_grid);
                 if ~isempty(xAirList)
-                    % 合并后每个空气带连通区仅保留 1 个 air label
                     mi_addblocklabel(xAirList(1), yAirList(1));
                     mi_selectlabel(xAirList(1), yAirList(1));
                     mi_setblockprop(mats.air, 1, 0, '', 0, groupIdRing, 0);
                     mi_clearselected();
+                    keep_cu_air_island_label(island_id) = true;
                 end
             end
         elseif keep_bg_label(k)
@@ -166,7 +137,7 @@ for s = 1:nSector
 
         % ===== 铜几何：只对铜岛外边界内缩；内部共享边不缩 =====
         add_copper_cell_boundary_island_inset(k, s, isMirror, Cs, c0, ...
-            nr, nt, r_edges, theta_edges, alpha, alpha, corner_min_ratio, merge_corner_air, groupIdCuGeom, ...
+            nr, nt, r_edges, theta_edges, alpha, alpha, groupIdCuGeom, ...
             ir_of_k, it_of_k, is_copper_grid);
 
         % ===== 铜 label：每个铜格子都保留独立标签/匝数 =====
@@ -187,6 +158,43 @@ end
 
 end
 
+function [island_id, num_islands] = build_copper_island_id_8conn(is_copper_grid)
+[nr, nt] = size(is_copper_grid);
+island_id = zeros(nr, nt);
+num_islands = 0;
+
+for ir = 1:nr
+    for it = 1:nt
+        if ~is_copper_grid(ir, it) || island_id(ir, it) ~= 0
+            continue;
+        end
+
+        num_islands = num_islands + 1;
+        stack = [ir, it];
+        island_id(ir, it) = num_islands;
+
+        while ~isempty(stack)
+            ci = stack(end, 1); cj = stack(end, 2);
+            stack(end, :) = [];
+
+            nb = [ci-1,cj; ci+1,cj; ci,cj-1; ci,cj+1; ...
+                  ci-1,cj-1; ci-1,cj+1; ci+1,cj-1; ci+1,cj+1];
+            for n = 1:size(nb,1)
+                ni = nb(n,1); nj = nb(n,2);
+                if ni<1 || ni>nr || nj<1 || nj>nt
+                    continue;
+                end
+                if ~is_copper_grid(ni, nj) || island_id(ni, nj) ~= 0
+                    continue;
+                end
+                island_id(ni, nj) = num_islands;
+                stack = [stack; ni, nj]; %#ok<AGROW>
+            end
+        end
+    end
+end
+end
+
 
 function tf = copper_cell_has_air_band(k, nr, nt, ir_of_k, it_of_k, is_copper_grid)
 ir = ir_of_k(k);
@@ -202,58 +210,55 @@ corner_air = (sides.has_in  && sides.has_lft && ~n8.ul) || ...
 tf = side_air || corner_air;
 end
 
-
-function merge_air_cell = expand_corner_air_merge_cells(has_air_band_cell, has_side_air_cell, nr, nt, ir_of_k, it_of_k, mat_code)
-
-merge_air_cell = false(size(has_air_band_cell));
-side_grid = false(nr, nt);
-air_grid = false(nr, nt);
-for k = 1:numel(has_air_band_cell)
-    if mat_code(k) ~= 2
-        continue;
-    end
-    ir = ir_of_k(k); it = it_of_k(k);
-    side_grid(ir,it) = has_side_air_cell(k);
-    air_grid(ir,it) = has_air_band_cell(k);
-end
-
-for k = 1:numel(has_air_band_cell)
-    if mat_code(k) ~= 2 || ~has_air_band_cell(k)
-        continue;
-    end
-    if has_side_air_cell(k)
-        merge_air_cell(k) = true;
-        continue;
-    end
-
-    ir = ir_of_k(k); it = it_of_k(k);
-    nb = [ir-1,it; ir+1,it; ir,it-1; ir,it+1];
-    for n = 1:4
-        ni = nb(n,1); nj = nb(n,2);
-        if ni<1 || ni>nr || nj<1 || nj>nt
+function delete_internal_boundaries_in_copper_airband_sector( ...
+    r_edges, theta_edges, c0, Cs, isMirror, nr, nt, is_copper_grid, copper_island_id)
+for j = 1:nt
+    th_mid_base = 0.5*(theta_edges(j) + theta_edges(j+1));
+    th_mid = map_theta(th_mid_base, c0, Cs, isMirror);
+    for i = 1:(nr-1)
+        if ~(is_copper_grid(i,j) && is_copper_grid(i+1,j))
             continue;
         end
-        if side_grid(ni,nj) && air_grid(ni,nj)
-            merge_air_cell(k) = true;
-            break;
+        if copper_island_id(i,j) ~= copper_island_id(i+1,j)
+            continue;
+        end
+        r = r_edges(i+1); x = r*cosd(th_mid); y = r*sind(th_mid);
+        try
+            mi_clearselected(); mi_selectarcsegment(x,y); mi_deleteselected(); mi_clearselected();
+        catch
+            try
+                mi_clearselected(); mi_selectsegment(x,y); mi_deleteselected(); mi_clearselected();
+            catch
+                mi_clearselected();
+            end
         end
     end
 end
 
+for j = 1:(nt-1)
+    th_base = theta_edges(j+1);
+    th = map_theta(th_base, c0, Cs, isMirror);
+    for i = 1:nr
+        if ~(is_copper_grid(i,j) && is_copper_grid(i,j+1))
+            continue;
+        end
+        if copper_island_id(i,j) ~= copper_island_id(i,j+1)
+            continue;
+        end
+        rmid = 0.5*(r_edges(i) + r_edges(i+1));
+        x = rmid*cosd(th); y = rmid*sind(th);
+        try
+            mi_clearselected(); mi_selectsegment(x,y); mi_deleteselected(); mi_clearselected();
+        catch
+            mi_clearselected();
+        end
+    end
 end
-
-
-function tf = copper_cell_has_side_air(k, nr, nt, ir_of_k, it_of_k, is_copper_grid)
-ir = ir_of_k(k);
-it = it_of_k(k);
-n8 = get_copper_neighbors8(ir, it, nr, nt, is_copper_grid);
-sides = side_covered_by_8conn(n8);
-tf = ~(sides.has_in && sides.has_out && sides.has_lft && sides.has_rgt);
 end
 
 
 function [xAirList, yAirList] = air_band_label_points_for_copper_cell( ...
-    k, c0, Cs, isMirror, nr, nt, r_edges, theta_edges, sh_r, sh_th, corner_min_ratio, merge_corner_air, ...
+    k, c0, Cs, isMirror, nr, nt, r_edges, theta_edges, sh_r, sh_th, ...
     ir_of_k, it_of_k, is_copper_grid)
 
 ir = ir_of_k(k);
@@ -274,13 +279,6 @@ need_ul = has_in  && has_lft && ~n8.ul;
 need_ur = has_in  && has_rgt && ~n8.ur;
 need_dl = has_out && has_lft && ~n8.dl;
 need_dr = has_out && has_rgt && ~n8.dr;
-
-[need_ul, need_ur, need_dl, need_dr] = suppress_tiny_corner_air( ...
-    need_ul, need_ur, need_dl, need_dr, r1, r2, th1, th2, dr, dth, corner_min_ratio);
-if merge_corner_air
-    % 角空气并区时不再单独保留角边界/角标签，避免新增重复连线
-    need_ul = false; need_ur = false; need_dl = false; need_dr = false;
-end
 
 ri1 = r1 + (~has_in ) * dr;
 ri2 = r2 - (~has_out) * dr;
@@ -347,7 +345,7 @@ end
 end
 
 function add_copper_cell_boundary_island_inset(k, s, isMirror, Cs, c0, ...
-    nr, nt, r_edges, theta_edges, sh_r, sh_th, corner_min_ratio, merge_corner_air, groupIdCuGeom, ...
+    nr, nt, r_edges, theta_edges, sh_r, sh_th, groupIdCuGeom, ...
     ir_of_k, it_of_k, is_copper_grid)
 
 ir = ir_of_k(k);
@@ -369,13 +367,6 @@ need_ul = has_in  && has_lft && ~n8.ul;
 need_ur = has_in  && has_rgt && ~n8.ur;
 need_dl = has_out && has_lft && ~n8.dl;
 need_dr = has_out && has_rgt && ~n8.dr;
-
-[need_ul, need_ur, need_dl, need_dr] = suppress_tiny_corner_air( ...
-    need_ul, need_ur, need_dl, need_dr, r1, r2, th1, th2, dr, dth, corner_min_ratio);
-if merge_corner_air
-    % 角空气并区时取消角切口几何，避免铜格子顶点间重复连线
-    need_ul = false; need_ur = false; need_dl = false; need_dr = false;
-end
 
 ri1 = r1 + (~has_in ) * dr;
 ri2 = r2 - (~has_out) * dr;
@@ -465,12 +456,7 @@ if need_ul || need_ur || need_dl || need_dr
 
     for iP = 1:nP
         jP = mod(iP, nP) + 1;
-        mi_addsegment(px(iP), py(iP), px(jP), py(jP));
-        mx = 0.5*(px(iP)+px(jP));
-        my = 0.5*(py(iP)+py(jP));
-        mi_selectsegment(mx, my);
-        mi_setsegmentprop('', 0, 1, 0, groupIdCuGeom);
-        mi_clearselected();
+        add_segment_once(px(iP), py(iP), px(jP), py(jP), groupIdCuGeom);
     end
     return;
 end
@@ -493,20 +479,9 @@ for i = 1:4
     mi_clearselected();
 end
 
-% 径向边（常角）用直线段
-mi_addsegment(p(1,1), p(1,2), p(2,1), p(2,2));
-mi_addsegment(p(4,1), p(4,2), p(3,1), p(3,2));
-for ii = [1,4]
-    jj = ii + 1;
-    if ii == 4
-        jj = 3;
-    end
-    mx = 0.5*(p(ii,1)+p(jj,1));
-    my = 0.5*(p(ii,2)+p(jj,2));
-    mi_selectsegment(mx, my);
-    mi_setsegmentprop('', 0, 1, 0, groupIdCuGeom);
-    mi_clearselected();
-end
+% 保留铜格子之间边界，但去重避免重复连线
+add_segment_once(p(1,1), p(1,2), p(2,1), p(2,2), groupIdCuGeom);
+add_segment_once(p(4,1), p(4,2), p(3,1), p(3,2), groupIdCuGeom);
 
 % 周向边（常半径）用圆弧，且按扇区镜像方向选端点，避免后续扇区弧段丢失
 angSpan = ti2 - ti1;           % 基域内一定为正
@@ -514,49 +489,77 @@ angMidBase = 0.5*(ti1 + ti2);
 angMid = mapTh(angMidBase);
 
 if ~isMirror
-    % 角度正向
-    mi_addarc(p(2,1), p(2,2), p(3,1), p(3,2), angSpan, 1);
-    mi_addarc(p(1,1), p(1,2), p(4,1), p(4,2), angSpan, 1);
+    add_arc_once(p(2,1), p(2,2), p(3,1), p(3,2), angSpan, 1, ...
+        ri2*cosd(angMid), ri2*sind(angMid), groupIdCuGeom);
+    add_arc_once(p(1,1), p(1,2), p(4,1), p(4,2), angSpan, 1, ...
+        ri1*cosd(angMid), ri1*sind(angMid), groupIdCuGeom);
 else
-    % 镜像扇区角度反向：交换端点但保持正角度
-    mi_addarc(p(3,1), p(3,2), p(2,1), p(2,2), angSpan, 1);
-    mi_addarc(p(4,1), p(4,2), p(1,1), p(1,2), angSpan, 1);
+    add_arc_once(p(3,1), p(3,2), p(2,1), p(2,2), angSpan, 1, ...
+        ri2*cosd(angMid), ri2*sind(angMid), groupIdCuGeom);
+    add_arc_once(p(4,1), p(4,2), p(1,1), p(1,2), angSpan, 1, ...
+        ri1*cosd(angMid), ri1*sind(angMid), groupIdCuGeom);
 end
-
-mi_selectarcsegment(ri2*cosd(angMid), ri2*sind(angMid));
-mi_setarcsegmentprop(1, '', 0, groupIdCuGeom);
-mi_clearselected();
-
-mi_selectarcsegment(ri1*cosd(angMid), ri1*sind(angMid));
-mi_setarcsegmentprop(1, '', 0, groupIdCuGeom);
-mi_clearselected();
 
 end
 
+function reset_cu_geom_edge_cache()
+global cu_geom_seg_cache cu_geom_arc_cache
+cu_geom_seg_cache = [];
+cu_geom_arc_cache = [];
+cu_geom_seg_cache = containers.Map('KeyType', 'char', 'ValueType', 'logical');
+cu_geom_arc_cache = containers.Map('KeyType', 'char', 'ValueType', 'logical');
+end
 
-function [need_ul, need_ur, need_dl, need_dr] = suppress_tiny_corner_air( ...
-    need_ul, need_ur, need_dl, need_dr, r1, r2, th1, th2, dr, dth, corner_min_ratio)
-
-if ~(need_ul || need_ur || need_dl || need_dr)
+function add_segment_once(x1, y1, x2, y2, groupId)
+global cu_geom_seg_cache
+if isempty(cu_geom_seg_cache) || ~isa(cu_geom_seg_cache, 'containers.Map')
+    cu_geom_seg_cache = containers.Map('KeyType', 'char', 'ValueType', 'logical');
+end
+k = make_segment_key(x1, y1, x2, y2);
+if isKey(cu_geom_seg_cache, k)
     return;
 end
-
-r_mid = 0.5*(r1 + r2);
-cell_rad_len = max(r2 - r1, 1e-12);
-cell_tan_len = max(r_mid, 1e-12) * deg2rad(max(th2 - th1, 1e-12));
-band_rad_len = max(dr, 0);
-band_tan_len = max(r_mid, 1e-12) * deg2rad(max(dth, 0));
-
-base_len = min(cell_rad_len, cell_tan_len);
-band_len = min(band_rad_len, band_tan_len);
-
-if band_len < corner_min_ratio * base_len
-    need_ul = false;
-    need_ur = false;
-    need_dl = false;
-    need_dr = false;
+mi_addsegment(x1, y1, x2, y2);
+mx = 0.5*(x1 + x2); my = 0.5*(y1 + y2);
+mi_selectsegment(mx, my);
+mi_setsegmentprop('', 0, 1, 0, groupId);
+mi_clearselected();
+cu_geom_seg_cache(k) = true;
 end
 
+function add_arc_once(x1, y1, x2, y2, angleDeg, maxSegDeg, selx, sely, groupId)
+global cu_geom_arc_cache
+if isempty(cu_geom_arc_cache) || ~isa(cu_geom_arc_cache, 'containers.Map')
+    cu_geom_arc_cache = containers.Map('KeyType', 'char', 'ValueType', 'logical');
+end
+k = make_arc_key(x1, y1, x2, y2, angleDeg);
+if isKey(cu_geom_arc_cache, k)
+    return;
+end
+mi_addarc(x1, y1, x2, y2, angleDeg, maxSegDeg);
+mi_selectarcsegment(selx, sely);
+mi_setarcsegmentprop(maxSegDeg, '', 0, groupId);
+mi_clearselected();
+cu_geom_arc_cache(k) = true;
+end
+
+function k = make_segment_key(x1, y1, x2, y2)
+p1 = [round(x1, 12), round(y1, 12)];
+p2 = [round(x2, 12), round(y2, 12)];
+if (p1(1) > p2(1)) || (p1(1) == p2(1) && p1(2) > p2(2))
+    t = p1; p1 = p2; p2 = t;
+end
+k = sprintf('S:%.12g,%.12g|%.12g,%.12g', p1(1), p1(2), p2(1), p2(2));
+end
+
+function k = make_arc_key(x1, y1, x2, y2, angleDeg)
+p1 = [round(x1, 12), round(y1, 12)];
+p2 = [round(x2, 12), round(y2, 12)];
+if (p1(1) > p2(1)) || (p1(1) == p2(1) && p1(2) > p2(2))
+    t = p1; p1 = p2; p2 = t;
+end
+k = sprintf('A:%.12g,%.12g|%.12g,%.12g|%.12g', ...
+    p1(1), p1(2), p2(1), p2(2), round(angleDeg, 12));
 end
 
 function thw = wrap_to_span(th, th_start, th_end)

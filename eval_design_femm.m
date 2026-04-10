@@ -52,7 +52,7 @@ opendocument(tmpFem);
     mi_deleteselected();
 
     % ---------- 2. 根据基因填充 6 个 15° 设计域 ----------
-    femm_apply_design_bits_rep6_inset_merge_cu_island_inset_v4_8conn(bits, domain,ctx, ctx.phase_id_sector, ctx.mats, ctx.circNames, ...
+    femm_apply_design_bits_rep6_inset_merge_cu_island_inset_v2_corner_tri(bits, domain,ctx, ctx.phase_id_sector, ctx.mats, ctx.circNames, ...
                              ctx.groupId_core, ctx.groupId_ring,31, turns_per_cell);
     
 

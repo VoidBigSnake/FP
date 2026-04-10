@@ -1,12 +1,13 @@
-function femm_apply_design_bits_rep6_inset_merge_cu_island_inset_v3_8conn( ...
+function femm_apply_design_bits_rep6_inset_merge_cu_island_inset_v2_corner_tri( ...
     gene, domain, ctx, phase_id_sector, mats, circNames, ...
     groupIdCore, groupIdRing, groupIdCuGeom, turns_per_circ)
 
-% v3_8conn 目标（在 v2 基础上）：
+% v2_corner_tri 目标（在 v2 基础上）：
 % 1) 铜岛外边界做小幅内缩（默认 0.2）形成空气带
 % 2) 每个铜格子保留独立铜标签/匝数（不再按铜连通岛合并铜标签）
 % 3) 背景空气/铁标签不落在铜格子上，避免铜岛内部出现空气标签
-% 4) 引入 8 邻接检测；并修正边覆盖判定，避免"正邻已是铜"时两格之间仍生成空气带
+% 4) 对"内部铜格"新增角空气带：当角外侧(对角)不是铜时，
+%    连接现有空气带顶点，在角上切出三角形空气带并打空气标签
 
 Nd = domain.Nd;
 mat_code = decode_material_bits(gene, Nd);  % 0 air, 1 iron, 2 copper
@@ -195,27 +196,31 @@ ti2 = th2 - (~has_rgt) * dth;
 rad_mid = 0.5*(ti1 + ti2);
 tan_mid = 0.5*(ri1 + ri2);
 
-% 默认先放 1 个标签
 rLab = []; tLab = [];
 
-% 若仅两侧且为对边空气带（内外 或 左右），两条空气带彼此不连通，需要两个标签
-if (~has_in && ~has_out && has_lft && has_rgt)
-    rLab = [0.5*(r1 + ri1), 0.5*(ri2 + r2)];
-    tLab = [rad_mid,          rad_mid];
-elseif (~has_lft && ~has_rgt && has_in && has_out)
-    rLab = [tan_mid,          tan_mid];
-    tLab = [0.5*(th1 + ti1),  0.5*(ti2 + th2)];
-else
-    % 其他情形空气带连通，1 个标签即可
-    if ~has_out
-        rLab = 0.5*(ri2 + r2); tLab = rad_mid;
-    elseif ~has_in
-        rLab = 0.5*(r1 + ri1); tLab = rad_mid;
-    elseif ~has_rgt
-        rLab = tan_mid;        tLab = 0.5*(ti2 + th2);
+% 仅在存在"边空气带"时放边带标签；
+% 角空气带(need_*)由后续角标签单独处理，避免 corner-only 情况误放一个侧边标签到铜区。
+has_side_air = (~has_in) || (~has_out) || (~has_lft) || (~has_rgt);
+if has_side_air
+    % 若仅两侧且为对边空气带（内外 或 左右），两条空气带彼此不连通，需要两个标签
+    if (~has_in && ~has_out && has_lft && has_rgt)
+        rLab = [0.5*(r1 + ri1), 0.5*(ri2 + r2)];
+        tLab = [rad_mid,          rad_mid];
+    elseif (~has_lft && ~has_rgt && has_in && has_out)
+        rLab = [tan_mid,          tan_mid];
+        tLab = [0.5*(th1 + ti1),  0.5*(ti2 + th2)];
     else
-        % ~has_lft
-        rLab = tan_mid;        tLab = 0.5*(th1 + ti1);
+        % 其他情形空气带连通，1 个标签即可
+        if ~has_out
+            rLab = 0.5*(ri2 + r2); tLab = rad_mid;
+        elseif ~has_in
+            rLab = 0.5*(r1 + ri1); tLab = rad_mid;
+        elseif ~has_rgt
+            rLab = tan_mid;        tLab = 0.5*(ti2 + th2);
+        else
+            % ~has_lft
+            rLab = tan_mid;        tLab = 0.5*(th1 + ti1);
+        end
     end
 end
 
@@ -288,19 +293,56 @@ if ti2 <= ti1
 end
 
 if need_ul || need_ur || need_dl || need_dr
-    cr_ul = need_ul * dr; ct_ul = need_ul * dth;
-    cr_ur = need_ur * dr; ct_ur = need_ur * dth;
-    cr_dl = need_dl * dr; ct_dl = need_dl * dth;
-    cr_dr = need_dr * dr; ct_dr = need_dr * dth;
+    % 角空气带采用"三角切角"：
+    % 直接连接两条现有空气带边上的顶点，形成角三角形空气区。
+    pr = [];
+    pt = [];
 
-    pr = [ri1+cr_ul, ri2-cr_dl, ri2,      ri2,      ri2-cr_dr, ri1+cr_ur, ri1,      ri1];
-    pt = [ti1,       ti1,       ti1+ct_dl,ti2-ct_dr,ti2,       ti2,       ti2-ct_ur,ti1+ct_ul];
+    if need_ul
+        pr = [pr, ri1 + dr];
+        pt = [pt, ti1];
+    else
+        pr = [pr, ri1];
+        pt = [pt, ti1];
+    end
+
+    if need_dl
+        pr = [pr, ri2 - dr, ri2];
+        pt = [pt, ti1,      ti1 + dth];
+    else
+        pr = [pr, ri2];
+        pt = [pt, ti1];
+    end
+
+    if need_dr
+        pr = [pr, ri2,      ri2 - dr];
+        pt = [pt, ti2 - dth, ti2];
+    else
+        pr = [pr, ri2];
+        pt = [pt, ti2];
+    end
+
+    if need_ur
+        pr = [pr, ri1 + dr, ri1];
+        pt = [pt, ti2,      ti2 - dth];
+    else
+        pr = [pr, ri1];
+        pt = [pt, ti2];
+    end
+
+    if need_ul
+        pr = [pr, ri1];
+        pt = [pt, ti1 + dth];
+    end
+
     use = true(size(pr));
-    for ii = 1:numel(pr)
-        jj = mod(ii, numel(pr)) + 1;
-        if abs(pr(ii)-pr(jj)) < 1e-12 && abs(pt(ii)-pt(jj)) < 1e-12
-            use(jj) = false;
+    for ii = 2:numel(pr)
+        if abs(pr(ii)-pr(ii-1)) < 1e-12 && abs(pt(ii)-pt(ii-1)) < 1e-12
+            use(ii) = false;
         end
+    end
+    if abs(pr(1)-pr(end)) < 1e-12 && abs(pt(1)-pt(end)) < 1e-12
+        use(end) = false;
     end
     pr = pr(use); pt = pt(use);
 
@@ -318,12 +360,42 @@ if need_ul || need_ur || need_dl || need_dr
 
     for iP = 1:nP
         jP = mod(iP, nP) + 1;
-        mi_addsegment(px(iP), py(iP), px(jP), py(jP));
-        mx = 0.5*(px(iP)+px(jP));
-        my = 0.5*(py(iP)+py(jP));
-        mi_selectsegment(mx, my);
-        mi_setsegmentprop('', 0, 1, 0, groupIdCuGeom);
-        mi_clearselected();
+        rA = pr(iP); tA = pt(iP);
+        rB = pr(jP); tB = pt(jP);
+        xA = px(iP); yA = py(iP);
+        xB = px(jP); yB = py(jP);
+
+        if abs(tA - tB) < 1e-12
+            % 常角：径向边，直线段
+            mi_addsegment(xA, yA, xB, yB);
+            mx = 0.5*(xA+xB); my = 0.5*(yA+yB);
+            mi_selectsegment(mx, my);
+            mi_setsegmentprop('', 0, 1, 0, groupIdCuGeom);
+            mi_clearselected();
+        elseif abs(rA - rB) < 1e-12
+            % 常半径：周向边，用圆弧，避免把已有弧边退化成多余直线
+            base_dth = tB - tA;
+            if isMirror
+                base_dth = -base_dth;
+            end
+            if base_dth >= 0
+                mi_addarc(xA, yA, xB, yB, abs(base_dth), 1);
+            else
+                mi_addarc(xB, yB, xA, yA, abs(base_dth), 1);
+            end
+            tMid = 0.5*(tA+tB);
+            Tmid = map_theta(tMid, c0, Cs, isMirror);
+            mi_selectarcsegment(rA*cosd(Tmid), rA*sind(Tmid));
+            mi_setarcsegmentprop(1, '', 0, groupIdCuGeom);
+            mi_clearselected();
+        else
+            % 切角连线：连接两条空气带顶点，形成三角角空气带
+            mi_addsegment(xA, yA, xB, yB);
+            mx = 0.5*(xA+xB); my = 0.5*(yA+yB);
+            mi_selectsegment(mx, my);
+            mi_setsegmentprop('', 0, 1, 0, groupIdCuGeom);
+            mi_clearselected();
+        end
     end
     return;
 end
